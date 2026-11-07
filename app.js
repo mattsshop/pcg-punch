@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.0';
+const VERSION = 'v0.5.1';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan

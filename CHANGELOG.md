@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.5.1 (2026-11-07)
+- Email connected to the PCG Punch Mailer (config.js).
+
 ## v0.5.0 (2026-11-07) Step 5 — email, print, Fieldwire
 - **Email** (Crew and Admin): send the current list, all open items, everything, or one trade's open items. Shows as "Your name (company) via PCG Punch"; replies go to you and you get a copy. Includes photos (up to 150) and, with the one-time Storage setting in the README, marked-up plans. Each trade's email address is remembered on that device.
 - Emails go through a small Apps Script (`apps-script/Mailer.gs`) that checks the sender is signed in and approved, and can send from a Gmail "Send mail as" alias.
