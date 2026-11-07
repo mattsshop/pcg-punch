@@ -1,7 +1,7 @@
-// PCG Punch — app (step 2: sign-in, access, projects, floor plans)
+// PCG Punch — app (sign-in, access, projects, floor plans, tags/items)
 import * as F from './fb.js';
 
-const VERSION = 'v0.2.0';
+const VERSION = 'v0.3.0';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -148,6 +148,7 @@ $('rSend').onclick = async () => {
 // ---------- App ----------
 function enterApp() {
   show('scrApp');
+  fillTrades(); processPhotoQueue(); loadQueuedThumbs(); updateNet();
   F.updateDoc(F.doc(db, 'users', S.user.uid), { lastSeen: F.serverTimestamp() }).catch(() => {});
   S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), snap => {
     S.projects = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
@@ -178,11 +179,12 @@ function noProjects() {
 }
 
 function selectProject(pid) {
-  stop('floors');
+  stop('floors'); stop('items'); S.items = []; closeModal(true);
   S.pid = pid; S.floor = null;
   if (!pid) { noProjects(); return; }
   store('pcg_pid', pid);
   renderProjects();
+  watchItems(pid);
   S.unsub.floors = F.onSnapshot(F.query(F.collection(db, 'projects', pid, 'floors'), F.orderBy('n')), snap => {
     S.floors = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     const keep = S.floors.find(f => f.n === S.floor) ? S.floor : (S.floors.find(f => f.n === Number(store('pcg_floor_' + pid))) || S.floors[0] || {}).n;
@@ -194,13 +196,15 @@ function selectProject(pid) {
 }
 
 function renderTabs() {
-  $('floorTabs').innerHTML = S.floors.map(f =>
-    `<button data-f="${f.n}" class="${f.n === S.floor ? 'sel' : ''}">${esc(String(f.label || 'Level ' + f.n).replace(/^Level\s*/i, 'L'))}</button>`).join('');
+  $('floorTabs').innerHTML = S.floors.map(f => {
+    const n = (S.items || []).filter(i => i.floor === f.n && i.status !== 'Closed').length;
+    return `<button data-f="${f.n}" class="${f.n === S.floor ? 'sel' : ''}">${esc(String(f.label || 'Level ' + f.n).replace(/^Level\s*/i, 'L'))}${n ? ` <small>${n}</small>` : ''}</button>`;
+  }).join('');
 }
 $('floorTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) loadFloor(Number(b.dataset.f)); });
 
 function loadFloor(n) {
-  S.floor = n; renderTabs();
+  S.floor = n; renderTabs(); renderList(); $('pins').innerHTML = '';
   if (S.pid && n != null) store('pcg_floor_' + S.pid, String(n));
   const f = S.floors.find(x => x.n === n), img = $('plan'), msg = $('planMsg');
   img.style.display = 'none'; S.shownUrl = null;
@@ -216,7 +220,8 @@ function loadFloor(n) {
     if (S.floor !== n) return;
     msg.classList.add('hidden'); img.style.display = 'block'; S.shownUrl = f.planUrl;
     $('stage').style.width = img.naturalWidth + 'px'; $('stage').style.height = img.naturalHeight + 'px';
-    fit();
+    fit(); renderPins();
+    if (S.pendingFocus) { focusItem(S.pendingFocus); S.pendingFocus = null; }
   };
   img.onerror = () => { if (S.floor === n) msg.textContent = 'Could not load the plan — check your connection.'; };
   img.src = f.planUrl;
@@ -253,7 +258,7 @@ viewer.addEventListener('pointerdown', e => {
   if (e.target.closest('.zoomctl') || e.target.closest('#planMsg button')) return;
   viewer.setPointerCapture(e.pointerId);
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, tx: S.v.tx, ty: S.v.ty };
+  if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, tx: S.v.tx, ty: S.v.ty, moved: false, pin: e.target.closest('.pin') };
   else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: dist(a, b), s: S.v.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, tx: S.v.tx, ty: S.v.ty }; drag = null; }
 });
 viewer.addEventListener('pointermove', e => {
@@ -264,16 +269,20 @@ viewer.addEventListener('pointermove', e => {
     const ns = Math.min(Math.max(pinch.s * dist(a, b) / pinch.d, S.v.fit * 0.5), S.v.fit * 25);
     const wx = (pinch.cx - r.left - pinch.tx) / pinch.s, wy = (pinch.cy - r.top - pinch.ty) / pinch.s;
     S.v.s = ns; S.v.tx = (a.x + b.x) / 2 - r.left - wx * ns; S.v.ty = (a.y + b.y) / 2 - r.top - wy * ns; apply();
-  } else if (drag) { S.v.tx = drag.tx + e.clientX - drag.x; S.v.ty = drag.ty + e.clientY - drag.y; apply(); }
+  } else if (drag) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true;
+    if (drag.moved) { S.v.tx = drag.tx + e.clientX - drag.x; S.v.ty = drag.ty + e.clientY - drag.y; apply(); }
+  }
 });
-const endPtr = e => {
+const endPtr = (e, cancel) => {
+  if (!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
   if (ptrs.size < 2) pinch = null;
-  if (ptrs.size === 1) { const p = [...ptrs.values()][0]; drag = { x: p.x, y: p.y, tx: S.v.tx, ty: S.v.ty }; }
-  if (!ptrs.size) drag = null;
+  if (ptrs.size === 1) { const p = [...ptrs.values()][0]; drag = { x: p.x, y: p.y, tx: S.v.tx, ty: S.v.ty, moved: true }; }
+  if (!ptrs.size) { if (drag && !drag.moved && !cancel) handleTap(e, drag.pin); drag = null; }
 };
-viewer.addEventListener('pointerup', endPtr);
-viewer.addEventListener('pointercancel', endPtr);
+viewer.addEventListener('pointerup', e => endPtr(e, false));
+viewer.addEventListener('pointercancel', e => endPtr(e, true));
 
 // ---------- Modals ----------
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.modal').classList.add('hidden'));
@@ -457,3 +466,334 @@ $('uTable').addEventListener('click', async e => {
   try { await F.updateDoc(ref, change); toast(b.dataset.act === 'approve' ? 'Approved — their app opens by itself' : b.dataset.act === 'revoke' ? 'Access removed' : 'Role saved'); }
   catch (err) { toast(friendly(err), 6000); b.disabled = false; }
 });
+
+// =====================================================================
+// Tags / items (step 3)
+// =====================================================================
+const TRADES = ['General / Carpentry', 'Drywall', 'Paint', 'Flooring', 'Tile', 'Doors & Hardware', 'Millwork / Casework',
+  'Plumbing', 'HVAC / PTAC', 'Electrical', 'Low Voltage / Data', 'Fire Sprinkler', 'Fire Alarm', 'Windows / Storefront',
+  'Roofing', 'Exterior / Siding', 'Concrete', 'Sitework', 'Signage', 'FF&E', 'Elevator', 'Cleaning'];
+const STATUS_CLS = s => 's-' + String(s || 'Open').replace(/\s+/g, '');
+const canEdit = () => S.me && S.me.role !== 'Viewer';
+const meStamp = () => ({ uid: S.user.uid, name: S.me.name || S.user.email });
+Object.assign(S, { items: [], adding: false, editing: null, moving: false, pendingPhotos: [], keptPhotos: [], queued: {}, numbering: new Set() });
+
+function fillTrades() {
+  const opts = TRADES.map(t => `<option>${esc(t)}</option>`).join('');
+  $('iTrade').innerHTML = '<option value="">— Select —</option>' + opts;
+  $('fTrade').innerHTML = '<option value="">All trades</option>' + opts;
+}
+
+function watchItems(pid) {
+  S.unsub.items = F.onSnapshot(F.collection(db, 'projects', pid, 'items'), { includeMetadataChanges: true }, snap => {
+    if (S.pid !== pid) return;
+    S.items = snap.docs.map(d => Object.assign({ id: d.id, _pending: d.metadata.hasPendingWrites }, d.data()));
+    S.fromCache = snap.metadata.fromCache;
+    renderAll(); assignNumbers(); updateNet();
+  }, e => toast(friendly(e), 6000));
+}
+
+// Item numbers: given out one at a time from the project's counter, only while online.
+// Items added with no signal show "…" until the phone reconnects.
+function assignNumbers() {
+  if (!S.pid || !canEdit() || navigator.onLine === false) return;
+  const pid = S.pid, projRef = F.doc(db, 'projects', pid);
+  S.items.filter(i => i.number == null && (S.me.role === 'Admin' || (i.createdBy && i.createdBy.uid === S.user.uid)))
+    .forEach(i => {
+      if (S.numbering.has(i.id)) return;
+      S.numbering.add(i.id);
+      const itemRef = F.doc(db, 'projects', pid, 'items', i.id);
+      F.runTransaction(db, async tx => {
+        const p = await tx.get(projRef), it = await tx.get(itemRef);
+        if (!it.exists() || it.data().number != null) return;
+        const n = (p.exists() && p.data().nextNumber) || 1;
+        tx.update(projRef, { nextNumber: n + 1 });
+        tx.update(itemRef, { number: n });
+      }).catch(() => {}).finally(() => S.numbering.delete(i.id));
+    });
+}
+
+function renderAll() { renderTabs(); renderList(); renderPins(); updateSync(); }
+
+function filtered(ignoreFloor) {
+  const q = $('fSearch').value.trim().toLowerCase(), st = $('fStatus').value, tr = $('fTrade').value;
+  const thisFloor = $('fFloor').checked && !ignoreFloor, mine = $('fMine').checked && S.me;
+  const myName = S.me ? String(S.me.name || '').toLowerCase() : '';
+  return (S.items || []).filter(i => {
+    if (thisFloor && i.floor !== S.floor) return false;
+    if (st === 'active' && i.status === 'Closed') return false;
+    if (st && st !== 'active' && i.status !== st) return false;
+    if (tr && i.trade !== tr) return false;
+    if (mine && String(i.assignedTo || '').toLowerCase() !== myName) return false;
+    if (q && ![i.number, i.room, i.description, i.assignedTo, i.trade, i.notes].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a, b) => a.floor - b.floor || (a.number || 1e9) - (b.number || 1e9));
+}
+['fSearch', 'fStatus', 'fTrade', 'fFloor', 'fMine'].forEach(id => $(id).addEventListener('input', () => { renderList(); renderPins(); }));
+
+const floorLabel = n => (S.floors.find(f => f.n === n) || {}).label || 'Level ' + n;
+const numText = i => i.number == null ? '…' : i.number;
+
+function renderPins() {
+  const img = $('plan'); if (!img.naturalWidth || img.style.display === 'none') { $('pins').innerHTML = ''; return; }
+  const ed = S.editing;
+  let html = filtered(true).filter(i => i.floor === S.floor).map(i => {
+    if (ed && ed.id === i.id && ed._moved) return '';
+    return `<div class="pw" style="left:${i.x * 100}%;top:${i.y * 100}%"><div class="pin ${STATUS_CLS(i.status)}${i._pending ? ' pending' : ''}" data-id="${i.id}" title="#${numText(i)} ${esc(i.room)} – ${esc(i.description)}"><span>${numText(i)}</span></div></div>`;
+  }).join('');
+  if (ed && ed.floor === S.floor && ed.x != null && (!ed.id || ed._moved)) {
+    html += `<div class="pw" style="left:${ed.x * 100}%;top:${ed.y * 100}%"><div class="pin temp"><span>${ed.id ? numText(ed) : '+'}</span></div></div>`;
+  }
+  $('pins').innerHTML = html;
+}
+
+function renderList() {
+  if (!S.me) return;
+  const items = filtered();
+  $('list').innerHTML = items.length ? items.map(i => `
+    <div class="row" data-id="${i.id}">
+      <div class="num ${STATUS_CLS(i.status)}">${numText(i)}</div>
+      <div class="body">
+        <div class="t">${esc(i.room || '—')} · ${esc(i.trade || 'No trade')}</div>
+        <div class="d">${esc(i.description)}</div>
+        <div class="m">${esc(floorLabel(i.floor))} · ${esc(i.status)}${i.assignedTo ? ' · ' + esc(i.assignedTo) : ''}${i.dueDate ? ' · due ' + esc(i.dueDate) : ''} · <span class="pri-${esc(i.priority)}">${esc(i.priority)}</span>${(i.photos || []).length || (S.queued[i.id] || []).length ? ' · 📷' + ((i.photos || []).length + (S.queued[i.id] || []).length) : ''}${i._pending ? ' · <i>saving…</i>' : ''}</div>
+      </div>
+    </div>`).join('') : `<div style="padding:16px;color:var(--mut)">${S.items.length ? 'No items match.' : 'No items yet.' + (canEdit() ? ' Tap <b>+ Tag</b>, then tap the plan.' : '')}</div>`;
+  const open = S.items.filter(i => i.status !== 'Closed').length;
+  $('counts').textContent = `Showing ${items.length} · ${open} open of ${S.items.length} total`;
+  const rooms = [...new Set(S.items.map(i => i.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  $('roomList').innerHTML = rooms.map(r => `<option value="${esc(r)}">`).join('');
+  $('assignList').innerHTML = [...new Set(S.items.map(i => i.assignedTo).filter(Boolean))].sort().map(r => `<option value="${esc(r)}">`).join('');
+}
+$('list').addEventListener('click', e => {
+  const row = e.target.closest('.row'); if (!row) return;
+  const it = S.items.find(i => i.id === row.dataset.id); if (!it) return;
+  $('panel').classList.remove('open');
+  if (it.floor !== S.floor) { S.pendingFocus = it.id; loadFloor(it.floor); } else { focusItem(it.id); openItem(it.id); }
+});
+$('listBtn').onclick = () => $('panel').classList.toggle('open');
+
+function centerOn(x, y, s) {
+  const img = $('plan');
+  S.v.s = s; S.v.tx = viewer.clientWidth / 2 - x * img.naturalWidth * s; S.v.ty = viewer.clientHeight / 2 - y * img.naturalHeight * s; apply();
+}
+function focusItem(id) {
+  const it = S.items.find(i => i.id === id); if (!it || !$('plan').naturalWidth) return;
+  centerOn(it.x, it.y, Math.max(S.v.s, S.v.fit * 3));
+  const p = document.querySelector(`.pin[data-id="${id}"]`);
+  if (p) { p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash'); }
+}
+
+// ---- tapping the plan
+function planCoords(e) {
+  const img = $('plan'); if (!img.naturalWidth || img.style.display === 'none') return null;
+  const r = viewer.getBoundingClientRect();
+  const x = (e.clientX - r.left - S.v.tx) / S.v.s / img.naturalWidth, y = (e.clientY - r.top - S.v.ty) / S.v.s / img.naturalHeight;
+  return x < 0 || x > 1 || y < 0 || y > 1 ? null : { x: +x.toFixed(5), y: +y.toFixed(5) };
+}
+function hint(t) { $('hint').textContent = t; $('hint').classList.toggle('hidden', !t); }
+function handleTap(e, pin) {
+  if (S.moving) {
+    const c = planCoords(e); if (!c) return;
+    Object.assign(S.editing, { x: c.x, y: c.y, _moved: true }); S.moving = false;
+    hint(S.adding ? 'Tap the plan where the issue is' : ''); renderPins(); $('itemModal').classList.remove('hidden');
+    toast('New spot set — tap Save to keep it'); return;
+  }
+  if (pin && pin.dataset.id) { openItem(pin.dataset.id); return; }
+  if (S.adding && canEdit()) { const c = planCoords(e); if (c) openNew(c.x, c.y); }
+}
+$('addBtn').onclick = () => {
+  if (!$('plan').naturalWidth || $('plan').style.display === 'none') { toast('Upload a plan for this floor first'); return; }
+  S.adding = !S.adding;
+  $('addBtn').textContent = S.adding ? 'Done tagging' : '+ Tag';
+  $('addBtn').classList.toggle('danger', S.adding);
+  viewer.classList.toggle('adding', S.adding);
+  hint(S.adding ? 'Tap the plan where the issue is' : '');
+  if (S.adding) $('panel').classList.remove('open');
+};
+
+// ---- item window
+function openNew(x, y) {
+  S.editing = { x, y, floor: S.floor, status: 'Open', priority: 'Medium', photos: [] };
+  fillForm({ room: store('pcg_room') || '', trade: store('pcg_trade') || '', description: '', assignedTo: '', priority: 'Medium', dueDate: '', status: 'Open', notes: '', photos: [] });
+  $('itemTitle').textContent = 'New tag – ' + floorLabel(S.floor);
+  $('iDelete').style.display = 'none'; $('iMove').style.display = 'none'; $('iMeta').textContent = '';
+  showModal(); setTimeout(() => $('iDesc').focus(), 50);
+}
+function openItem(id) {
+  const it = S.items.find(i => i.id === id); if (!it) return;
+  S.editing = Object.assign({}, it);
+  fillForm(it);
+  $('itemTitle').textContent = `#${numText(it)} – ${floorLabel(it.floor)}`;
+  $('iDelete').style.display = ''; $('iMove').style.display = '';
+  const when = t => t ? new Date(t.toDate ? t.toDate() : t).toLocaleString() : '';
+  $('iMeta').textContent = [it.createdBy ? `Added by ${it.createdBy.name} ${when(it.createdAt)}` : '',
+    it.updatedBy ? `Updated by ${it.updatedBy.name} ${when(it.updatedAt)}` : '', it.closedAt ? 'Closed ' + when(it.closedAt) : ''].filter(Boolean).join(' · ');
+  showModal();
+}
+function fillForm(it) {
+  const ro = !canEdit();
+  ['iRoom', 'iTrade', 'iDesc', 'iAssigned', 'iPriority', 'iDue', 'iStatus', 'iNotes'].forEach(id => $(id).disabled = ro);
+  $('iRoom').value = it.room || ''; $('iTrade').value = it.trade || ''; $('iDesc').value = it.description || '';
+  $('iAssigned').value = it.assignedTo || ''; $('iPriority').value = it.priority || 'Medium';
+  $('iDue').value = it.dueDate || ''; $('iStatus').value = it.status || 'Open'; $('iNotes').value = it.notes || '';
+  S.keptPhotos = (it.photos || []).slice(); S.pendingPhotos = [];
+  renderPhotos();
+}
+function showModal() { $('itemModal').classList.remove('hidden'); renderPins(); }
+function closeModal(quiet) {
+  $('itemModal').classList.add('hidden'); S.editing = null; S.moving = false;
+  if (!quiet) { hint(S.adding ? 'Tap the plan where the issue is' : ''); renderPins(); }
+}
+$('iCancel').onclick = () => closeModal();
+$('iMove').onclick = () => {
+  if (S.editing.floor !== S.floor) { toast('Switch to ' + floorLabel(S.editing.floor) + ' first'); return; }
+  S.moving = true; $('itemModal').classList.add('hidden'); hint('Tap the new spot for #' + numText(S.editing));
+};
+
+function renderPhotos() {
+  const box = $('iPhotos'), edit = canEdit();
+  const queued = S.editing && S.editing.id ? (S.queued[S.editing.id] || []) : [];
+  let html = S.keptPhotos.map((p, i) => `<div class="ph"><img src="${esc(p.thumbUrl || p.url)}" data-full="${esc(p.url)}" alt="">${edit ? `<button data-rm="${i}">×</button>` : ''}</div>`).join('');
+  html += queued.map(u => `<div class="ph queued" title="Uploading when there is signal"><img src="${u}" data-full="${u}" alt=""></div>`).join('');
+  html += S.pendingPhotos.map((p, i) => `<div class="ph"><img src="${p.preview}" data-full="${p.preview}" alt=""><button data-rmnew="${i}">×</button></div>`).join('');
+  if (edit) html += '<div class="addph" id="addPh">+ Photo</div>';
+  box.innerHTML = html;
+}
+$('iPhotos').addEventListener('click', e => {
+  if (e.target.id === 'addPh') { $('iFile').click(); return; }
+  if (e.target.dataset.rm != null) { S.keptPhotos.splice(Number(e.target.dataset.rm), 1); renderPhotos(); return; }
+  if (e.target.dataset.rmnew != null) { S.pendingPhotos.splice(Number(e.target.dataset.rmnew), 1); renderPhotos(); return; }
+  if (e.target.tagName === 'IMG') { $('lightbox').querySelector('img').src = e.target.dataset.full || e.target.src; $('lightbox').classList.remove('hidden'); }
+});
+$('lightbox').onclick = () => $('lightbox').classList.add('hidden');
+
+function resizeImage(file, max, q) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      c.toBlob(b => b ? res(b) : rej(new Error('Could not read photo')), 'image/jpeg', q);
+    };
+    img.onerror = () => rej(new Error('Could not read photo')); img.src = url;
+  });
+}
+$('iFile').addEventListener('change', async e => {
+  for (const f of e.target.files) {
+    try {
+      const full = await resizeImage(f, 1600, 0.8), thumb = await resizeImage(f, 400, 0.7);
+      S.pendingPhotos.push({ full, thumb, preview: URL.createObjectURL(thumb) });
+    } catch (err) { toast(err.message); }
+  }
+  e.target.value = ''; renderPhotos();
+});
+
+// Save: written to the phone first (works with no signal), then synced by Firestore.
+$('iSave').onclick = async () => {
+  const ed = S.editing;
+  if (!$('iDesc').value.trim()) { toast('Add a description'); $('iDesc').focus(); return; }
+  const isNew = !ed.id;
+  const ref = isNew ? F.doc(F.collection(db, 'projects', S.pid, 'items')) : F.doc(db, 'projects', S.pid, 'items', ed.id);
+  const status = $('iStatus').value;
+  const data = {
+    floor: ed.floor, x: ed.x, y: ed.y,
+    room: $('iRoom').value.trim(), trade: $('iTrade').value, description: $('iDesc').value.trim(),
+    assignedTo: $('iAssigned').value.trim(), priority: $('iPriority').value, dueDate: $('iDue').value,
+    status, notes: $('iNotes').value.trim(), photos: S.keptPhotos,
+    updatedAt: F.serverTimestamp(), updatedBy: meStamp()
+  };
+  const before = isNew ? null : S.items.find(i => i.id === ed.id);
+  if (status === 'Closed' && (!before || before.status !== 'Closed')) data.closedAt = F.serverTimestamp();
+  if (status !== 'Closed') data.closedAt = null;
+  if (isNew) Object.assign(data, { number: null, createdAt: F.serverTimestamp(), createdBy: meStamp() });
+  store('pcg_room', data.room); store('pcg_trade', data.trade);
+  (isNew ? F.setDoc(ref, data) : F.updateDoc(ref, data)).catch(err => toast('Not saved: ' + friendly(err), 8000));
+  // photos removed in this edit
+  if (before) (before.photos || []).filter(p => !S.keptPhotos.some(k => k.path === p.path))
+    .forEach(p => { [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})); });
+  // new photos go into a queue on this device and upload when there is signal
+  const newOnes = S.pendingPhotos.slice();
+  closeModal();
+  toast(isNew ? 'Tag added' : 'Saved');
+  if (newOnes.length) {
+    for (const p of newOnes) await PQ.add({ pid: S.pid, itemId: ref.id, full: p.full, thumb: p.thumb, at: Date.now() });
+    await loadQueuedThumbs(); renderList(); processPhotoQueue();
+  }
+};
+$('iDelete').onclick = async () => {
+  const ed = S.editing;
+  if (!confirm(`Delete #${numText(ed)}? This can't be undone.`)) return;
+  const it = S.items.find(i => i.id === ed.id) || ed;
+  F.deleteDoc(F.doc(db, 'projects', S.pid, 'items', ed.id)).catch(err => toast(friendly(err), 6000));
+  (it.photos || []).forEach(p => [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})));
+  closeModal(); toast('Deleted #' + numText(ed));
+};
+
+// ---- photo upload queue (IndexedDB) — survives closing the app with no signal
+const PQ = {
+  open() {
+    return this.p || (this.p = new Promise((res, rej) => {
+      const r = indexedDB.open('pcg-punch', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('photoQueue', { keyPath: 'k', autoIncrement: true });
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+  },
+  async tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => { const t = db.transaction('photoQueue', mode); const out = fn(t.objectStore('photoQueue')); t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); });
+  },
+  add(v) { return this.tx('readwrite', s => s.add(v)); },
+  all() { return this.tx('readonly', s => s.getAll()); },
+  del(k) { return this.tx('readwrite', s => s.delete(k)); }
+};
+async function loadQueuedThumbs() {
+  try {
+    Object.values(S.queued).flat().forEach(u => URL.revokeObjectURL(u));
+    const q = await PQ.all(); S.queued = {};
+    q.forEach(e => (S.queued[e.itemId] = S.queued[e.itemId] || []).push(URL.createObjectURL(e.thumb)));
+    updateSync();
+  } catch (e) { /* storage unavailable (private mode) */ }
+}
+let pqBusy = false;
+async function processPhotoQueue() {
+  if (pqBusy || navigator.onLine === false || !S.me || !canEdit()) return;
+  pqBusy = true;
+  try {
+    for (const e of await PQ.all()) {
+      const base = `projects/${e.pid}/photos/${e.itemId}-${e.at}-${e.k}`;
+      try {
+        await F.uploadBytes(F.ref(storage, base + '.jpg'), e.full, { contentType: 'image/jpeg' });
+        await F.uploadBytes(F.ref(storage, base + '-thumb.jpg'), e.thumb, { contentType: 'image/jpeg' });
+        const [url, thumbUrl] = await Promise.all([F.getDownloadURL(F.ref(storage, base + '.jpg')), F.getDownloadURL(F.ref(storage, base + '-thumb.jpg'))]);
+        await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
+          { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
+        await PQ.del(e.k);
+      } catch (err) {
+        if (/not-found/.test(err.code || '')) { await PQ.del(e.k); continue; } // item was deleted
+        break; // no signal or another problem: try again later
+      }
+    }
+  } catch (e) { /* ignore */ }
+  pqBusy = false;
+  await loadQueuedThumbs(); renderList();
+}
+setInterval(processPhotoQueue, 30000);
+
+// ---- connection / sync status
+function updateSync() {
+  const saving = (S.items || []).filter(i => i._pending).length, photos = Object.values(S.queued).flat().length;
+  $('syncState').textContent = [saving ? `${saving} change(s) to sync` : '', photos ? `${photos} photo(s) to upload` : ''].filter(Boolean).join(' · ');
+}
+function updateNet() {
+  const off = navigator.onLine === false;
+  $('netState').textContent = off ? 'Offline — changes are saved on this device' : '';
+}
+addEventListener('online', () => { updateNet(); processPhotoQueue(); assignNumbers(); });
+addEventListener('offline', updateNet);
+
+// ---- install + offline app shell
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}

@@ -1,5 +1,14 @@
 # PCG Punch changelog
 
+## v0.3.0 (2026-11-07) Step 3 — tags and items
+- **+ Tag**, then tap the plan: room, trade, description, assigned to, priority, due date, status, notes and photos. Room and trade are remembered for the next tag.
+- Tags are colored by status and numbered 1, 2, 3… per hotel. Tap a tag to open it; **Move tag** to reposition; Admins can delete.
+- List panel with search and filters (status, trade, this floor, assigned to me); tap a row to jump to the tag. Floor tabs show open counts. On phones, **List** opens it.
+- **Live:** changes from anyone appear within a second or two.
+- **No signal:** tags save on the device and sync when the signal returns, even if the app was closed. Photos wait in a queue on the device and upload then. Tags added offline show "…" until they get their number.
+- Install to the home screen; the app opens without signal (plans and photos already seen stay available).
+- Viewers can look and open tags but not change them.
+
 ## v0.2.0 (2026-11-07) Step 2 — sign-in, people, projects, plans
 - Sign in with Google or with email + password (new email accounts confirm their address first; "Forgot password?" sends a reset email).
 - New people request access with their name and company, then wait. As soon as an Admin approves them, their app opens by itself.

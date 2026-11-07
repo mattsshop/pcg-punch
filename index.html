@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>PCG Punch</title>
 <meta name="theme-color" content="#1a73e8">
-<link rel="stylesheet" href="style.css?v=0.2.0">
-<script src="config.js?v=0.2.0"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PCG Punch">
+<link rel="stylesheet" href="style.css?v=0.3.0">
+<script src="config.js?v=0.3.0"></script>
 </head>
 <body>
 
@@ -73,6 +79,8 @@
     </div>
     <nav id="floorTabs"></nav>
     <div class="actions">
+      <button id="addBtn" class="primary crew-only">+ Tag</button>
+      <button id="listBtn">List</button>
       <button id="plansBtn" class="admin-only">Plans</button>
       <button id="projBtn" class="admin-only">Projects</button>
       <button id="usersBtn" class="admin-only">Users<span id="pendBadge"></span></button>
@@ -82,8 +90,22 @@
     <section id="viewer">
       <div id="stage"><img id="plan" alt=""><div id="pins"></div></div>
       <div id="planMsg"></div>
+      <div id="hint" class="hidden"></div>
       <div class="zoomctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zfit" title="Fit">⤢</button></div>
     </section>
+    <aside id="panel">
+      <div class="filters">
+        <input type="search" id="fSearch" placeholder="Search # / room / description / assigned">
+        <select id="fStatus"><option value="active">Not closed</option><option value="">All statuses</option>
+          <option>Open</option><option>In Progress</option><option>Ready for Review</option><option>Closed</option></select>
+        <select id="fTrade"><option value="">All trades</option></select>
+        <label class="chk"><input type="checkbox" id="fFloor" checked> This floor only</label>
+        <label class="chk"><input type="checkbox" id="fMine"> Assigned to me</label>
+        <div class="counts" id="counts"></div>
+      </div>
+      <div id="list"></div>
+      <div class="foot"><span id="syncState"></span><span class="sp"></span><span id="netState"></span></div>
+    </aside>
   </main>
 </section>
 
@@ -116,7 +138,32 @@
   <div class="btns"><span class="sp"></span><button data-close>Close</button></div>
 </div></div>
 
+<!-- Item -->
+<div class="modal hidden" id="itemModal"><div class="card">
+  <h3 id="itemTitle">New tag</h3>
+  <div class="grid">
+    <div><label>Room / area<input id="iRoom" list="roomList" placeholder="e.g. 214, Corridor, Laundry"></label><datalist id="roomList"></datalist></div>
+    <div><label>Trade<select id="iTrade"></select></label></div>
+    <div class="full"><label>Description<textarea id="iDesc" rows="3" placeholder="What needs to be fixed"></textarea></label></div>
+    <div><label>Assigned to<input id="iAssigned" list="assignList"></label><datalist id="assignList"></datalist></div>
+    <div><label>Priority<select id="iPriority"><option>Low</option><option selected>Medium</option><option>High</option></select></label></div>
+    <div><label>Due date<input type="date" id="iDue"></label></div>
+    <div><label>Status<select id="iStatus"><option>Open</option><option>In Progress</option><option>Ready for Review</option><option>Closed</option></select></label></div>
+    <div class="full"><label>Notes<textarea id="iNotes" rows="2"></textarea></label></div>
+    <div class="full"><label>Photos</label><div class="photos" id="iPhotos"></div>
+      <input type="file" id="iFile" accept="image/*" multiple hidden></div>
+  </div>
+  <div class="meta" id="iMeta"></div>
+  <div class="btns">
+    <button class="primary crew-only" id="iSave">Save</button>
+    <button class="crew-only" id="iMove">Move tag</button>
+    <button class="danger admin-only" id="iDelete">Delete</button>
+    <span class="sp"></span><button id="iCancel">Close</button>
+  </div>
+</div></div>
+
+<div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.2.0"></script>
+<script type="module" src="app.js?v=0.3.0"></script>
 </body>
 </html>

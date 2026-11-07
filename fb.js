@@ -6,8 +6,9 @@ export {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 export {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, query, orderBy, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch
+  doc, collection, query, orderBy, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch,
+  runTransaction, arrayUnion
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 export {
-  getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject
+  getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';

@@ -22,7 +22,7 @@ until the switch. The screens, plans, QR labels, Fieldwire export and PDF report
 |---|---|---|
 | 1 | Repo, Firebase project, security rules, setup check page | done (v0.1) |
 | 2 | Sign-in, access requests and approvals, projects, floor plan upload, plan viewer | done (v0.2) |
-| 3 | Tags on plans, item details, photos, live updates, offline saving, item numbers | |
+| 3 | Tags on plans, item details, photos, live updates, offline saving, item numbers | done (v0.3) |
 | 4 | Rooms, QR labels, public read-only room pages, scan log | |
 | 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | |
 | 6 | Move WoodSpring Cartersville items and photos over from the Sheet and Drive; switch | |
@@ -56,6 +56,7 @@ Google account, change it in both files before publishing.
 | `app.js` | The app's logic |
 | `style.css` | The app's look |
 | `fb.js` | Loads the Firebase SDK (one place to change its version) |
+| `sw.js`, `manifest.webmanifest`, icons | Home-screen install and opening with no signal |
 | `config.js` | Firebase project values — **edit this** |
 | `firebase/firestore.rules` | Who can read and change which data |
 | `firebase/storage.rules` | Who can read and upload plans and photos |
