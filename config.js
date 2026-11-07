@@ -1,13 +1,13 @@
 // PCG Punch — connection settings.
-// Paste the "firebaseConfig" values from Firebase console > Project settings > Your apps > Web app.
-// These values are not secret (security comes from the rules), so it is normal to commit them.
+// Values from Firebase console > Project settings > Your apps > pcg-punch-web.
+// These values are not secret (security comes from the rules in firebase/), so it is normal to commit them.
 window.PCG_CONFIG = {
   firebase: {
-    apiKey: 'REPLACE_ME',
-    authDomain: 'REPLACE_ME.firebaseapp.com',
-    projectId: 'REPLACE_ME',
-    storageBucket: 'REPLACE_ME.firebasestorage.app',
-    messagingSenderId: 'REPLACE_ME',
-    appId: 'REPLACE_ME'
+    apiKey: 'AIzaSyDHpwkWGCCgBz7_VZt0qo84mkaQdO9B2Wo',
+    authDomain: 'pcg-punch.firebaseapp.com',
+    projectId: 'pcg-punch',
+    storageBucket: 'pcg-punch.firebasestorage.app',
+    messagingSenderId: '345564530678',
+    appId: '1:345564530678:web:b574fb4a01a0690bc469d7'
   }
 };
