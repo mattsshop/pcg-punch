@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.3.0">
-<script src="config.js?v=0.3.0"></script>
+<link rel="stylesheet" href="style.css?v=0.4.0">
+<script src="config.js?v=0.4.0"></script>
 </head>
 <body>
 
@@ -70,6 +70,18 @@
   </div>
 </section>
 
+<!-- Public read-only room card (QR scan without signing in) -->
+<section id="scrPublic" class="screen hidden" style="align-items:flex-start">
+  <div class="pub">
+    <div class="pub-proj" id="pubProj"></div>
+    <h1 id="pubRoom"></h1>
+    <div id="pubSub" class="pub-sub"></div>
+    <div id="pubList"></div>
+    <div class="btns"><button class="primary" id="pubSignIn">Sign in to update</button></div>
+    <div class="ver">Read-only view · Perimeter Construction Group</div>
+  </div>
+</section>
+
 <!-- Main app -->
 <section id="scrApp" class="hidden">
   <header>
@@ -83,6 +95,7 @@
       <button id="listBtn">List</button>
       <button id="plansBtn" class="admin-only">Plans</button>
       <button id="projBtn" class="admin-only">Projects</button>
+      <button id="roomsBtn" class="admin-only">Rooms &amp; QR</button>
       <button id="usersBtn" class="admin-only">Users<span id="pendBadge"></span></button>
     </div>
   </header>
@@ -95,6 +108,7 @@
     </section>
     <aside id="panel">
       <div class="filters">
+        <div id="roomChip" class="hidden"><b id="roomChipText"></b><button id="roomChipX">Show all rooms</button></div>
         <input type="search" id="fSearch" placeholder="Search # / room / description / assigned">
         <select id="fStatus"><option value="active">Not closed</option><option value="">All statuses</option>
           <option>Open</option><option>In Progress</option><option>Ready for Review</option><option>Closed</option></select>
@@ -128,6 +142,64 @@
   <div class="meta">PDF plans are turned into a sharp image when uploaded (pick the page for multi-page sets). For best results use one floor per PDF page.</div>
   <div class="btns"><button id="plAdd">+ Add floor</button><span class="sp"></span><button data-close>Close</button></div>
 </div></div>
+
+<!-- Rooms & QR (Admin) -->
+<div class="modal hidden" id="roomsModal"><div class="card" style="width:820px">
+  <h3>Rooms &amp; QR — <span id="rmProj"></span></h3>
+  <div class="setgrid">
+    <label class="chk"><input type="checkbox" data-set="publicRooms"> Anyone who scans a room QR sees its open items (read-only)</label>
+    <label class="chk"><input type="checkbox" data-set="publicPhotos"> Show one photo per item on those pages</label>
+    <label class="chk"><input type="checkbox" data-set="logScans"> Keep a scan log</label>
+    <label class="chk"><input type="checkbox" data-set="autoRoom"> New tags fill in the nearest room</label>
+  </div>
+  <div class="btns" style="margin-top:8px">
+    <button class="primary" id="qrOpen">Print QR labels</button>
+    <button id="rmPublish">Refresh public pages</button>
+    <span class="sp"></span>
+    <select id="rmSeed" style="width:auto"></select><button id="rmLoadSeed">Load rooms</button>
+  </div>
+  <details class="adj"><summary>Add rooms by hand</summary>
+    <div class="grid" style="margin-top:6px">
+      <div class="full"><label>Rooms (comma separated, ranges OK)<input id="rmAdd" placeholder="101-130, Lobby, Guest Laundry"></label></div>
+      <div><label>Floor<select id="rmAddFloor"></select></label></div>
+      <div><label>Type<select id="rmAddType"><option>Guest room</option><option>Common / BOH</option></select></label></div>
+    </div>
+    <div class="btns"><button id="rmAddBtn">Add</button><span class="meta">Then use <b>Place</b> to tap each room's spot on the plan.</span></div>
+  </details>
+  <div class="btns" style="margin-top:10px"><label style="display:inline">Show <select id="rmFloor" style="width:auto"></select></label><span class="sp"></span><span class="meta" id="rmCount"></span></div>
+  <div style="overflow:auto;max-height:44vh"><table class="tbl" id="rmTable"></table></div>
+  <div class="btns"><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
+
+<!-- QR labels -->
+<div class="modal hidden" id="qrModal"><div class="card" style="width:640px">
+  <h3>QR labels</h3>
+  <div class="grid">
+    <div class="full"><label>Which labels<select id="qWhich">
+      <option value="all">Every room + one per floor</option><option value="guest">Guest rooms only</option>
+      <option value="common">Common / back-of-house areas</option><option value="floors">One per floor only</option>
+      <option value="floor">The floor shown in the app</option><option value="list">Only these rooms…</option></select></label></div>
+    <div class="full hidden" id="qListWrap"><label>Rooms (comma separated, ranges OK)<input id="qList" placeholder="214, 215, 301-310, Level 2"></label></div>
+    <div class="full"><label>Print on<select id="qFormat">
+      <option value="avery">Avery 2" × 2" sheet labels (22806 – 12 per sheet)</option>
+      <option value="images">Single label images (mini label printer / phone)</option></select></label></div>
+  </div>
+  <details class="adj" id="qAdj"><summary>Sheet alignment (only if labels print off-center)</summary>
+    <div class="grid" style="margin-top:6px">
+      <div><label>Top margin (in)<input id="qTop" type="number" step="0.01"></label></div>
+      <div><label>Left margin (in)<input id="qLeft" type="number" step="0.01"></label></div>
+      <div><label>Across spacing (in)<input id="qPx" type="number" step="0.01"></label></div>
+      <div><label>Down spacing (in)<input id="qPy" type="number" step="0.01"></label></div>
+      <div><label>Start at label # (partly used sheet)<input id="qStart" type="number" min="1" max="12" value="1"></label></div>
+    </div>
+    <div class="meta">Print a test page on plain paper first and hold it over a label sheet. Print at 100% / "Actual size".</div>
+  </details>
+  <div class="meta" id="qCount"></div>
+  <div id="qOut"></div>
+  <div class="btns"><button class="primary" id="qGo">Build labels</button><button id="qStrip" class="hidden">Download as one strip</button><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
+<div id="printArea"></div>
+<style id="pageStyle"></style>
 
 <!-- Users (Admin) -->
 <div class="modal hidden" id="usersModal"><div class="card" style="width:860px">
@@ -164,6 +236,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.3.0"></script>
+<script type="module" src="app.js?v=0.4.0"></script>
 </body>
 </html>

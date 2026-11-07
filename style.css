@@ -127,3 +127,39 @@ textarea{resize:vertical}
     box-shadow:0 -4px 16px rgba(0,0,0,.2);transform:translateY(105%);transition:transform .2s;z-index:20;border-radius:12px 12px 0 0}
   #panel.open{transform:none}
 }
+
+/* ---- v0.4.0: rooms, QR, public room page ---- */
+#roomChip{grid-column:1/3;display:flex;background:#e8f0fe;color:#174ea6;border-radius:14px;padding:5px 10px;font-size:13px;align-items:center;gap:8px}
+#roomChip.hidden{display:none}
+#roomChip b{flex:1}
+#roomChip button{padding:2px 8px;font-size:12px}
+.setgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
+.chk{font-size:13px;display:flex;align-items:center;gap:6px;color:var(--ink)}
+.chk input{width:auto}
+details.adj{margin-top:8px;font-size:13px}
+details.adj summary{cursor:pointer;color:var(--acc)}
+.pub{max-width:560px;width:100%;margin:12px auto}
+.pub-proj{font-size:13px;color:var(--mut)}
+.pub h1{font-size:34px;margin:2px 0 0}
+.pub-sub{color:var(--mut);margin-bottom:12px}
+.pub-card{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+.pub-card img{width:78px;height:78px;object-fit:cover;border-radius:6px;flex:none}
+.pub-card .t{font-weight:600;font-size:14px} .pub-card .d{font-size:14px;margin:3px 0}
+.pub-room{font-weight:700;margin:14px 0 6px}
+.stp{font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;background:var(--open)}
+.stp.s-InProgress{background:var(--prog)} .stp.s-ReadyforReview{background:var(--rev)}
+.lblgrid{display:flex;flex-wrap:wrap;gap:8px;max-height:50vh;overflow:auto;margin-top:8px}
+.lblgrid figure{margin:0;text-align:center;font-size:11px}
+.lblgrid img{width:120px;border:1px solid var(--line);display:block;background:#fff}
+.dim{color:var(--mut)}
+#printArea{display:none}
+@media print{
+  html,body{height:auto;background:#fff}
+  body > *:not(#printArea){display:none !important}
+  #printArea{display:block}
+  .lbl-page{position:relative;width:8.5in;height:11in;page-break-after:always;overflow:hidden}
+  .lbl-page:last-child{page-break-after:auto}
+  .lbl{position:absolute;width:2in;height:2in}
+  .lbl img{width:100%;height:100%;display:block}
+}
+@media (max-width:700px){ .setgrid{grid-template-columns:1fr} }

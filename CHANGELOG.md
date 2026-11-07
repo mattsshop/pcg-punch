@@ -1,5 +1,15 @@
 # PCG Punch changelog
 
+## v0.4.0 (2026-11-07) Step 4 — rooms and QR codes
+- **Rooms & QR** (Admin): load the WoodSpring Cartersville room list (122 guest rooms + common areas, positioned from plans A1.1/A1.2), or add rooms by hand ("101-130, Lobby") and **Place** them by tapping the plan. Turn rooms off, **Show** a room's items.
+- New tags fill in the nearest room automatically (can be turned off).
+- **Print QR labels:** Avery 2"×2" sheets (22806, 12 per sheet, alignment adjustable, start at any label) or single images / one long strip for a mini label printer. One code per room plus one per floor.
+- **Scanning a label:** signed-in people jump to that room (plan zoomed in, list filtered — "Show all rooms" clears it). Anyone else sees a read-only card of the room's open items: number, trade, description, status and one photo. No plans, names, notes or dates.
+- Room cards update automatically when someone adds, changes, closes or deletes an item in that room. **Refresh public pages** rebuilds them all.
+- Switches: public room pages, public photos, scan log, auto-fill room. Scan counts show in the Rooms list.
+- Fix: a plan could get stuck on "Loading plan…" if the floor list changed while it loaded.
+- Rules v0.4.0: room cards can only be opened one at a time (nobody can list them all). **Re-publish firebase/firestore.rules.**
+
 ## v0.3.0 (2026-11-07) Step 3 — tags and items
 - **+ Tag**, then tap the plan: room, trade, description, assigned to, priority, due date, status, notes and photos. Room and trade are remembered for the next tag.
 - Tags are colored by status and numbered 1, 2, 3… per hotel. Tap a tag to open it; **Move tag** to reposition; Admins can delete.

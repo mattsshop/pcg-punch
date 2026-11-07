@@ -1,10 +1,15 @@
 // PCG Punch — app (sign-in, access, projects, floor plans, tags/items)
 import * as F from './fb.js';
+import { QR } from './qr.js';
+import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.3.0';
+const VERSION = 'v0.4.0';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
+const QS = new URLSearchParams(location.search);
+const ROOM_CODE = (QS.get('r') || '').replace(/[^\w-]/g, '').slice(0, 40); // from a scanned QR label
+const SITE_URL = location.origin + location.pathname.replace(/index\.html$/, '');
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -33,7 +38,7 @@ $('ver').textContent = ver;
 function stop(key) { if (S.unsub[key]) { S.unsub[key](); delete S.unsub[key]; } }
 function stopAll() { Object.keys(S.unsub).forEach(stop); }
 function show(id) {
-  ['scrSignin', 'scrVerify', 'scrRequest', 'scrWait', 'scrApp'].forEach(s => $(s).classList.toggle('hidden', s !== id));
+  ['scrSignin', 'scrVerify', 'scrRequest', 'scrWait', 'scrApp', 'scrPublic'].forEach(s => $(s).classList.toggle('hidden', s !== id));
 }
 const friendly = e => {
   const c = (e && e.code) || '';
@@ -104,7 +109,7 @@ F.onAuthStateChanged(auth, u => route(u));
 function route(u) {
   stopAll();
   S.user = u; S.me = null; document.body.className = '';
-  if (!u) { show('scrSignin'); return; }
+  if (!u) { if (ROOM_CODE && !S.publicDone) showPublic(); else show('scrSignin'); return; }
   const pw = u.providerData.some(p => p.providerId === 'password');
   if (pw && !u.emailVerified) { $('vEmail').textContent = u.email; show('scrVerify'); return; }
   S.isOwner = String(u.email || '').toLowerCase() === OWNER && u.emailVerified;
@@ -148,6 +153,7 @@ $('rSend').onclick = async () => {
 // ---------- App ----------
 function enterApp() {
   show('scrApp');
+  if (ROOM_CODE && !S.scanHandled) openScan();
   fillTrades(); processPhotoQueue(); loadQueuedThumbs(); updateNet();
   F.updateDoc(F.doc(db, 'users', S.user.uid), { lastSeen: F.serverTimestamp() }).catch(() => {});
   S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), snap => {
@@ -179,18 +185,20 @@ function noProjects() {
 }
 
 function selectProject(pid) {
-  stop('floors'); stop('items'); S.items = []; closeModal(true);
+  stop('floors'); stop('items'); stop('rooms'); S.items = []; S.rooms = []; closeModal(true);
+  if (S.roomFilter && S.roomFilter.pid !== pid) clearRoomFilter(true);
   S.pid = pid; S.floor = null;
   if (!pid) { noProjects(); return; }
   store('pcg_pid', pid);
   renderProjects();
   watchItems(pid);
+  watchRooms(pid);
   S.unsub.floors = F.onSnapshot(F.query(F.collection(db, 'projects', pid, 'floors'), F.orderBy('n')), snap => {
     S.floors = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     const keep = S.floors.find(f => f.n === S.floor) ? S.floor : (S.floors.find(f => f.n === Number(store('pcg_floor_' + pid))) || S.floors[0] || {}).n;
     const cur = S.floors.find(f => f.n === S.floor);
     renderTabs();
-    if (keep !== S.floor || (cur && cur.planUrl !== S.shownUrl)) loadFloor(keep);
+    if (keep !== S.floor || (cur && cur.planUrl !== S.shownUrl && cur.planUrl !== S.loadingUrl)) loadFloor(keep);
     if (!$('plansModal').classList.contains('hidden')) renderPlans();
   }, e => toast(friendly(e), 6000));
 }
@@ -216,15 +224,18 @@ function loadFloor(n) {
     return;
   }
   msg.classList.remove('hidden'); msg.textContent = 'Loading plan…';
+  S.loadingUrl = f.planUrl;
   img.onload = () => {
     if (S.floor !== n) return;
-    msg.classList.add('hidden'); img.style.display = 'block'; S.shownUrl = f.planUrl;
+    msg.classList.add('hidden'); img.style.display = 'block'; S.shownUrl = f.planUrl; S.loadingUrl = null;
     $('stage').style.width = img.naturalWidth + 'px'; $('stage').style.height = img.naturalHeight + 'px';
     fit(); renderPins();
     if (S.pendingFocus) { focusItem(S.pendingFocus); S.pendingFocus = null; }
+    if (S.pendingRoom && S.pendingRoom.floor === n) { const r = S.pendingRoom; S.pendingRoom = null; renderList(); focusRoom(r); }
   };
   img.onerror = () => { if (S.floor === n) msg.textContent = 'Could not load the plan — check your connection.'; };
-  img.src = f.planUrl;
+  if (img.getAttribute('src') === f.planUrl && img.complete && img.naturalWidth) img.onload(); // same image already loaded
+  else img.src = f.planUrl;
 }
 
 // ---------- Pan / zoom ----------
@@ -509,17 +520,18 @@ function assignNumbers() {
         const n = (p.exists() && p.data().nextNumber) || 1;
         tx.update(projRef, { nextNumber: n + 1 });
         tx.update(itemRef, { number: n });
-      }).catch(() => {}).finally(() => S.numbering.delete(i.id));
+      }).then(() => markDirty(i)).catch(() => {}).finally(() => S.numbering.delete(i.id));
     });
 }
 
 function renderAll() { renderTabs(); renderList(); renderPins(); updateSync(); }
 
 function filtered(ignoreFloor) {
-  const q = $('fSearch').value.trim().toLowerCase(), st = $('fStatus').value, tr = $('fTrade').value;
+  const q = $('fSearch').value.trim().toLowerCase(), st = $('fStatus').value, tr = $('fTrade').value, rf = S.roomFilter;
   const thisFloor = $('fFloor').checked && !ignoreFloor, mine = $('fMine').checked && S.me;
   const myName = S.me ? String(S.me.name || '').toLowerCase() : '';
   return (S.items || []).filter(i => {
+    if (rf && (i.floor !== rf.floor || !roomMatch(i.room, rf.room))) return false;
     if (thisFloor && i.floor !== S.floor) return false;
     if (st === 'active' && i.status === 'Closed') return false;
     if (st && st !== 'active' && i.status !== st) return false;
@@ -561,8 +573,11 @@ function renderList() {
     </div>`).join('') : `<div style="padding:16px;color:var(--mut)">${S.items.length ? 'No items match.' : 'No items yet.' + (canEdit() ? ' Tap <b>+ Tag</b>, then tap the plan.' : '')}</div>`;
   const open = S.items.filter(i => i.status !== 'Closed').length;
   $('counts').textContent = `Showing ${items.length} · ${open} open of ${S.items.length} total`;
-  const rooms = [...new Set(S.items.map(i => i.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  $('roomList').innerHTML = rooms.map(r => `<option value="${esc(r)}">`).join('');
+  const known = new Set((S.rooms || []).map(r => r.room));
+  const typed = [...new Set(S.items.map(i => i.room).filter(r => r && !known.has(r)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  $('roomList').innerHTML = (S.rooms || []).filter(r => r.type !== 'Floor' && r.active !== false)
+    .sort((a, b) => (a.floor === S.floor ? 0 : 1) - (b.floor === S.floor ? 0 : 1) || a.room.localeCompare(b.room, undefined, { numeric: true }))
+    .map(r => `<option value="${esc(r.room)}">${esc(r.name || '')} · L${r.floor}</option>`).join('') + typed.map(r => `<option value="${esc(r)}">`).join('');
   $('assignList').innerHTML = [...new Set(S.items.map(i => i.assignedTo).filter(Boolean))].sort().map(r => `<option value="${esc(r)}">`).join('');
 }
 $('list').addEventListener('click', e => {
@@ -593,6 +608,7 @@ function planCoords(e) {
 }
 function hint(t) { $('hint').textContent = t; $('hint').classList.toggle('hidden', !t); }
 function handleTap(e, pin) {
+  if (S.placing) { placeRoomAt(e); return; }
   if (S.moving) {
     const c = planCoords(e); if (!c) return;
     Object.assign(S.editing, { x: c.x, y: c.y, _moved: true }); S.moving = false;
@@ -615,7 +631,8 @@ $('addBtn').onclick = () => {
 // ---- item window
 function openNew(x, y) {
   S.editing = { x, y, floor: S.floor, status: 'Open', priority: 'Medium', photos: [] };
-  fillForm({ room: store('pcg_room') || '', trade: store('pcg_trade') || '', description: '', assignedTo: '', priority: 'Medium', dueDate: '', status: 'Open', notes: '', photos: [] });
+  const near = nearestRoom(S.floor, x, y);
+  fillForm({ room: near ? near.room : (S.roomFilter ? S.roomFilter.room : (store('pcg_room') || '')), trade: store('pcg_trade') || '', description: '', assignedTo: '', priority: 'Medium', dueDate: '', status: 'Open', notes: '', photos: [] });
   $('itemTitle').textContent = 'New tag – ' + floorLabel(S.floor);
   $('iDelete').style.display = 'none'; $('iMove').style.display = 'none'; $('iMeta').textContent = '';
   showModal(); setTimeout(() => $('iDesc').focus(), 50);
@@ -709,6 +726,8 @@ $('iSave').onclick = async () => {
   if (status !== 'Closed') data.closedAt = null;
   if (isNew) Object.assign(data, { number: null, createdAt: F.serverTimestamp(), createdBy: meStamp() });
   store('pcg_room', data.room); store('pcg_trade', data.trade);
+  if (before) markDirty(before);
+  markDirty({ floor: data.floor, room: data.room });
   (isNew ? F.setDoc(ref, data) : F.updateDoc(ref, data)).catch(err => toast('Not saved: ' + friendly(err), 8000));
   // photos removed in this edit
   if (before) (before.photos || []).filter(p => !S.keptPhotos.some(k => k.path === p.path))
@@ -727,6 +746,7 @@ $('iDelete').onclick = async () => {
   if (!confirm(`Delete #${numText(ed)}? This can't be undone.`)) return;
   const it = S.items.find(i => i.id === ed.id) || ed;
   F.deleteDoc(F.doc(db, 'projects', S.pid, 'items', ed.id)).catch(err => toast(friendly(err), 6000));
+  markDirty(it);
   (it.photos || []).forEach(p => [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})));
   closeModal(); toast('Deleted #' + numText(ed));
 };
@@ -770,6 +790,7 @@ async function processPhotoQueue() {
         await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
           { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
         await PQ.del(e.k);
+        const it = S.items.find(x => x.id === e.itemId); if (it && e.pid === S.pid) markDirty(it);
       } catch (err) {
         if (/not-found/.test(err.code || '')) { await PQ.del(e.k); continue; } // item was deleted
         break; // no signal or another problem: try again later
@@ -797,3 +818,332 @@ addEventListener('offline', updateNet);
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
+
+// =====================================================================
+// Rooms, public QR pages, scan log, QR labels (step 4)
+// =====================================================================
+const SETTINGS_DEFAULT = { publicRooms: true, publicPhotos: true, logScans: true, autoRoom: true };
+const project = () => S.projects.find(p => p.id === S.pid) || {};
+const settings = () => Object.assign({}, SETTINGS_DEFAULT, project().settings || {});
+
+function roomMatch(itemRoom, room) {
+  const a = String(itemRoom || '').trim().toLowerCase(), b = String(room || '').trim().toLowerCase();
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b + ' ') || a.startsWith(b + '-') || a.startsWith(b + ',');
+}
+function newCode() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789', b = crypto.getRandomValues(new Uint8Array(10));
+  return Array.from(b, x => A[x % A.length]).join('');
+}
+
+function watchRooms(pid) {
+  S.unsub.rooms = F.onSnapshot(F.collection(db, 'projects', pid, 'rooms'), snap => {
+    if (S.pid !== pid) return;
+    S.rooms = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    renderList();
+    if (!$('roomsModal').classList.contains('hidden')) renderRooms();
+    if (S.scanWant && S.scanWant.pid === pid) {
+      const r = S.rooms.find(x => x.code === S.scanWant.code);
+      if (r) { S.scanWant = null; setRoomFilter(r, true); }
+    }
+  }, () => {});
+}
+
+// ---- nearest room for a new tag
+function nearestRoom(floor, x, y) {
+  if (!settings().autoRoom || !S.rooms) return null;
+  const img = $('plan'), W = img.naturalWidth || 4000, H = img.naturalHeight || 1500;
+  let best = null, bd = Infinity;
+  S.rooms.forEach(r => {
+    if (r.floor !== floor || r.type === 'Floor' || r.x == null || r.active === false) return;
+    const d = Math.hypot((r.x - x) * W, (r.y - y) * H);
+    if (d < bd) { bd = d; best = r; }
+  });
+  return best && bd < 0.12 * W ? best : null;
+}
+
+// ---- room filter (from a scan or the Rooms list)
+function setRoomFilter(r, fromScan) {
+  if (r.type === 'Floor') { clearRoomFilter(true); loadFloor(r.floor); if (fromScan) toast(r.room + ' — all rooms on this floor'); return; }
+  S.roomFilter = Object.assign({ pid: S.pid }, r);
+  $('roomChipText').textContent = 'Room ' + r.room + (r.name ? ' · ' + r.name : '') + ' · L' + r.floor;
+  $('roomChip').classList.remove('hidden');
+  if (r.floor !== S.floor || !$('plan').naturalWidth) { S.pendingRoom = r; loadFloor(r.floor); } else { renderList(); renderPins(); focusRoom(r); }
+  if (fromScan && innerWidth <= 800) $('panel').classList.add('open');
+}
+function clearRoomFilter(quiet) { S.roomFilter = null; $('roomChip').classList.add('hidden'); if (!quiet) { renderList(); renderPins(); fit(); } }
+$('roomChipX').onclick = () => clearRoomFilter();
+function focusRoom(r) { if (r.x != null && $('plan').naturalWidth) centerOn(r.x, r.y, Math.max(S.v.fit * 4, S.v.s)); }
+
+// ---- scans
+function logScan(code, uid, allowed) {
+  if (!allowed) return;
+  F.setDoc(F.doc(F.collection(db, 'scans')), { code, at: F.serverTimestamp(), uid: uid || null }).catch(() => {});
+}
+async function openScan() {
+  S.scanHandled = true;
+  try {
+    const snap = await F.getDoc(F.doc(db, 'public', ROOM_CODE));
+    if (!snap.exists()) { toast('That QR code is not set up yet — ask the project manager.', 6000); return; }
+    const p = snap.data();
+    logScan(ROOM_CODE, S.user.uid, p.log);
+    S.scanWant = { pid: p.pid, code: ROOM_CODE };
+    if (p.pid !== S.pid) selectProject(p.pid);
+    else { const r = (S.rooms || []).find(x => x.code === ROOM_CODE); if (r) { S.scanWant = null; setRoomFilter(r, true); } }
+  } catch (e) { toast(friendly(e), 6000); }
+}
+async function showPublic() {
+  show('scrPublic');
+  $('pubSignIn').onclick = () => { S.publicDone = true; show('scrSignin'); };
+  $('pubRoom').textContent = 'Loading…'; $('pubSub').textContent = ''; $('pubList').innerHTML = '';
+  let p = null;
+  try { const snap = await F.getDoc(F.doc(db, 'public', ROOM_CODE)); p = snap.exists() ? snap.data() : null; }
+  catch (e) { $('pubRoom').textContent = 'Could not load'; $('pubSub').textContent = 'Check your connection and scan again.'; return; }
+  $('pubProj').textContent = p && p.projectName || '';
+  if (!p || p.off) {
+    $('pubRoom').textContent = p ? 'Sign in required' : 'QR code not active';
+    $('pubSub').textContent = p ? 'Room pages are turned off for this project. Sign in to see the punch list.' : 'This label is not in use. Ask the project manager for a new one.';
+    return;
+  }
+  logScan(ROOM_CODE, null, p.log);
+  const isFloor = p.type === 'Floor';
+  $('pubRoom').textContent = isFloor ? p.floorLabel : 'Room ' + p.room;
+  $('pubSub').textContent = isFloor ? 'Open punch items on this floor' : [p.name, p.floorLabel].filter(Boolean).join(' · ');
+  const card = i => `<div class="pub-card">${i.thumbUrl ? `<img src="${esc(i.thumbUrl)}" alt="">` : ''}<div>
+    <div class="t">#${esc(i.number == null ? '…' : i.number)}${i.trade ? ' · ' + esc(i.trade) : ''}</div>
+    <div class="d">${esc(i.description)}</div><span class="stp ${STATUS_CLS(i.status)}">${esc(i.status)}</span></div></div>`;
+  const items = p.items || [];
+  if (!items.length) { $('pubList').innerHTML = '<div class="pub-card"><div class="t">No open punch items here.</div></div>'; return; }
+  if (isFloor) {
+    const g = {}; items.forEach(i => (g[i.room || 'Other'] = g[i.room || 'Other'] || []).push(i));
+    $('pubList').innerHTML = Object.keys(g).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(k => `<div class="pub-room">Room ${esc(k)} — ${g[k].length}</div>` + g[k].map(card).join('')).join('');
+  } else $('pubList').innerHTML = `<div class="meta" style="margin-bottom:6px">${items.length} open item(s)</div>` + items.map(card).join('');
+}
+
+// ---- public room cards: rebuilt by whoever changes an item in that room
+let dirty = new Set(), dirtyT = null;
+function codesFor(item) {
+  if (!item || !S.rooms) return [];
+  return S.rooms.filter(r => r.floor === item.floor && (r.type === 'Floor' || roomMatch(item.room, r.room))).map(r => r.code);
+}
+function markDirty(item) {
+  if (!canEdit()) return;
+  codesFor(item).forEach(c => dirty.add(c));
+  clearTimeout(dirtyT); dirtyT = setTimeout(() => { const c = [...dirty]; dirty.clear(); publishRooms(c); }, 1500);
+}
+function publicDoc(r) {
+  const st = settings(), p = project();
+  if (!st.publicRooms || r.active === false) return { pid: S.pid, projectName: p.name || '', off: true, log: !!st.logScans };
+  const items = S.items.filter(i => i.status !== 'Closed' && i.floor === r.floor && (r.type === 'Floor' || roomMatch(i.room, r.room)))
+    .sort((a, b) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) || (a.number || 1e9) - (b.number || 1e9))
+    .map(i => {
+      const o = { number: i.number == null ? null : i.number, room: i.room || '', trade: i.trade || '', description: i.description || '', status: i.status };
+      const ph = (i.photos || [])[0];
+      if (st.publicPhotos && ph) o.thumbUrl = ph.thumbUrl || ph.url;
+      return o;
+    });
+  return { pid: S.pid, projectName: p.name || '', room: r.room, name: r.name || '', type: r.type || '', floor: r.floor,
+    floorLabel: floorLabel(r.floor), log: !!st.logScans, items, updatedAt: F.serverTimestamp() };
+}
+async function publishRooms(codes) {
+  const rs = (S.rooms || []).filter(r => codes.includes(r.code));
+  for (let k = 0; k < rs.length; k += 400) {
+    const b = F.writeBatch(db);
+    rs.slice(k, k + 400).forEach(r => b.set(F.doc(db, 'public', r.code), publicDoc(r)));
+    await b.commit().catch(e => toast('Public pages not updated: ' + friendly(e), 6000));
+  }
+}
+
+// ---- Rooms & QR window (Admin)
+$('roomsBtn').onclick = () => {
+  if (!S.pid) { toast('Create a project first'); return; }
+  $('rmSeed').innerHTML = '<option value="">Room list from…</option>' + Object.keys(ROOM_SEEDS).map(k => `<option>${esc(k)}</option>`).join('');
+  $('rmAddFloor').innerHTML = S.floors.map(f => `<option value="${f.n}">${esc(f.label)}</option>`).join('');
+  $('rmFloor').innerHTML = '<option value="">All floors</option>' + S.floors.map(f => `<option value="${f.n}">${esc(f.label)}</option>`).join('');
+  $('rmFloor').value = String(S.floor || '');
+  const st = settings();
+  document.querySelectorAll('[data-set]').forEach(c => c.checked = !!st[c.dataset.set]);
+  renderRooms(); loadScanCounts();
+  $('roomsModal').classList.remove('hidden');
+};
+$('rmFloor').onchange = () => renderRooms();
+document.querySelectorAll('[data-set]').forEach(c => c.onchange = async () => {
+  const next = Object.assign(settings(), { [c.dataset.set]: c.checked });
+  await F.updateDoc(F.doc(db, 'projects', S.pid), { settings: next }).catch(e => toast(friendly(e), 6000));
+  if (c.dataset.set !== 'autoRoom') { toast('Updating public pages…'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)).then(() => toast('Public pages updated')), 600); }
+});
+$('rmPublish').onclick = () => publishRooms(S.rooms.map(r => r.code)).then(() => toast('Public pages updated'));
+
+async function loadScanCounts() {
+  S.scanCounts = {};
+  try {
+    const snap = await F.getDocs(F.collection(db, 'scans'));
+    snap.docs.forEach(d => { const c = d.data().code; S.scanCounts[c] = (S.scanCounts[c] || 0) + 1; });
+    if (!$('roomsModal').classList.contains('hidden')) renderRooms();
+  } catch (e) { /* only Admins can read the log */ }
+}
+function sortRooms(a, b) {
+  return a.floor - b.floor || (a.type === 'Floor' ? -1 : b.type === 'Floor' ? 1 : 0) || a.room.localeCompare(b.room, undefined, { numeric: true });
+}
+function renderRooms() {
+  $('rmProj').textContent = project().name || '';
+  const f = Number($('rmFloor').value) || null;
+  const rs = (S.rooms || []).filter(r => !f || r.floor === f).sort(sortRooms);
+  $('rmCount').textContent = `${(S.rooms || []).filter(r => r.type === 'Guest room').length} guest rooms · ${(S.rooms || []).length} QR codes`;
+  $('rmTable').innerHTML = rs.length ? '<tr><th>Room</th><th>Name</th><th>Floor</th><th>On plan</th><th>Scans</th><th></th></tr>' + rs.map(r => `
+    <tr class="${r.active === false ? 'dim' : ''}"><td><b>${esc(r.room)}</b></td><td>${esc(r.name || '')}</td><td>${esc(floorLabel(r.floor))}</td>
+    <td>${r.type === 'Floor' ? '—' : r.x != null ? '✓' : '<span class="dim">not placed</span>'}</td><td>${(S.scanCounts || {})[r.code] || ''}</td>
+    <td style="white-space:nowrap">${r.type === 'Floor' ? '' : `<button data-place="${r.id}">Place</button> `}<button data-show="${r.id}">Show</button>
+      <button data-toggle="${r.id}">${r.active === false ? 'Turn on' : 'Turn off'}</button></td></tr>`).join('')
+    : '<tr><td>No rooms yet. Load a room list or add rooms by hand.</td></tr>';
+}
+$('rmTable').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.dataset.place || b.dataset.show || b.dataset.toggle, r = S.rooms.find(x => x.id === id); if (!r) return;
+  if (b.dataset.place) {
+    $('roomsModal').classList.add('hidden');
+    if (r.floor !== S.floor) loadFloor(r.floor);
+    S.placing = r; hint('Tap the spot for room ' + r.room + ' on the plan');
+  } else if (b.dataset.show) { $('roomsModal').classList.add('hidden'); setRoomFilter(r); }
+  else {
+    await F.updateDoc(F.doc(db, 'projects', S.pid, 'rooms', r.id), { active: r.active === false }).catch(err => toast(friendly(err), 6000));
+    publishRooms([r.code]);
+  }
+});
+function placeRoomAt(e) {
+  const c = planCoords(e), r = S.placing; S.placing = null; hint(S.adding ? 'Tap the plan where the issue is' : '');
+  if (!c) return;
+  F.updateDoc(F.doc(db, 'projects', S.pid, 'rooms', r.id), { x: c.x, y: c.y }).then(() => toast('Room ' + r.room + ' placed')).catch(err => toast(friendly(err), 6000));
+}
+async function addRooms(list) {
+  const have = new Set((S.rooms || []).map(r => r.floor + '|' + r.room.toLowerCase()));
+  const fresh = list.filter(r => !have.has(r.floor + '|' + r.room.toLowerCase()));
+  for (let k = 0; k < fresh.length; k += 400) {
+    const b = F.writeBatch(db);
+    fresh.slice(k, k + 400).forEach(r => b.set(F.doc(F.collection(db, 'projects', S.pid, 'rooms')),
+      Object.assign({ x: null, y: null, active: true }, r, { code: newCode() })));
+    await b.commit();
+  }
+  return fresh.length;
+}
+$('rmLoadSeed').onclick = async () => {
+  const key = $('rmSeed').value; if (!key) { toast('Pick a room list first'); return; }
+  const rows = ROOM_SEEDS[key].split(';').map(t => { const [room, floor, name, x, y] = t.split('|'); return { room, floor: Number(floor), name, x: Number(x), y: Number(y), type: /suite|king/i.test(name) ? 'Guest room' : 'Common / BOH' }; });
+  const floors = [...new Set(rows.map(r => r.floor))];
+  if (floors.some(n => !S.floors.find(f => f.n === n))) { toast(`That list needs floors ${floors.join(', ')} — add them under Plans first.`, 7000); return; }
+  floors.forEach(n => rows.unshift({ room: floorLabel(n), floor: n, name: 'Whole floor', type: 'Floor' }));
+  try { const n = await addRooms(rows); toast(n + ' rooms added'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)), 1500); }
+  catch (err) { toast(friendly(err), 6000); }
+};
+$('rmAddBtn').onclick = async () => {
+  const floor = Number($('rmAddFloor').value), type = $('rmAddType').value, out = [];
+  $('rmAdd').value.split(',').map(t => t.trim()).filter(Boolean).forEach(t => {
+    const m = t.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) for (let n = Number(m[1]); n <= Number(m[2]) && out.length < 500; n++) out.push({ room: String(n), floor, type, name: '' });
+    else out.push({ room: t, floor, type: /^\d+[A-Z]?$/i.test(t) ? type : 'Common / BOH', name: /^\d/.test(t) ? '' : t });
+  });
+  if (!out.length) { toast('Type some rooms first'); return; }
+  try { const n = await addRooms(out); $('rmAdd').value = ''; toast(n + ' room(s) added'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)), 1500); }
+  catch (err) { toast(friendly(err), 6000); }
+};
+
+// ---- QR labels
+const AVERY = { top: 0.625, left: 0.625, px: 2.625, py: 2.5 };
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+$('qrOpen').onclick = () => {
+  const a = Object.assign({}, AVERY); try { Object.assign(a, JSON.parse(store('pcg_avery') || '{}')); } catch (e) {}
+  $('qTop').value = a.top; $('qLeft').value = a.left; $('qPx').value = a.px; $('qPy').value = a.py;
+  $('qOut').innerHTML = ''; $('qStrip').classList.add('hidden');
+  $('roomsModal').classList.add('hidden'); qrCount(); $('qrModal').classList.remove('hidden');
+};
+function qrRooms() {
+  const v = $('qWhich').value, rs = (S.rooms || []).filter(r => r.active !== false).slice().sort(sortRooms);
+  if (v === 'all') return rs;
+  if (v === 'guest') return rs.filter(r => r.type === 'Guest room');
+  if (v === 'common') return rs.filter(r => r.type !== 'Guest room' && r.type !== 'Floor');
+  if (v === 'floors') return rs.filter(r => r.type === 'Floor');
+  if (v === 'floor') return rs.filter(r => r.floor === S.floor);
+  const want = new Set();
+  $('qList').value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean).forEach(t => {
+    const m = t.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) for (let n = Number(m[1]); n <= Number(m[2]); n++) want.add(String(n)); else want.add(t);
+  });
+  return rs.filter(r => want.has(r.room.toLowerCase()));
+}
+function qrCount() {
+  const n = qrRooms().length, avery = $('qFormat').value === 'avery';
+  $('qListWrap').classList.toggle('hidden', $('qWhich').value !== 'list');
+  $('qAdj').classList.toggle('hidden', !avery);
+  $('qCount').textContent = n + ' label(s)' + (avery ? ' · ' + Math.ceil((n + (Number($('qStart').value) || 1) - 1) / 12) + ' sheet(s)' : '');
+}
+['qWhich', 'qFormat', 'qStart', 'qList'].forEach(id => $(id).addEventListener('input', qrCount));
+
+function labelCanvas(r, w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.fillStyle = '#000'; x.textAlign = 'center';
+  const pad = Math.round(w * 0.05);
+  const fitText = (t, max, size, weight) => { let s = Math.round(size); do { x.font = `${weight} ${s}px Arial, Helvetica, sans-serif`; s--; } while (x.measureText(t).width > max && s > 6); };
+  const big = r.type === 'Floor' ? r.room.toUpperCase() : 'Room ' + r.room;
+  let y = pad + h * 0.115;
+  fitText(big, w - 2 * pad, h * 0.13, 'bold'); x.fillText(big, w / 2, y);
+  const sub = r.type === 'Floor' ? 'Whole floor' : [r.name, floorLabel(r.floor)].filter(Boolean).join(' · ');
+  y += h * 0.065; fitText(sub, w - 2 * pad, h * 0.052, 'normal'); x.fillText(sub, w / 2, y);
+  const foot = String(project().name || '').replace(/\s+Suites\b/i, '') + ' · scan for punch list';
+  const footH = h * 0.06, qrTop = y + h * 0.012, side = Math.min(w - 2 * pad * 0.4, h - qrTop - footH - pad * 0.6);
+  QR.draw(x, QR.encode(SITE_URL + '?r=' + r.code, 'M'), Math.round((w - side) / 2), Math.round(qrTop), Math.round(side));
+  fitText(foot, w - 2 * pad, h * 0.042, 'normal'); x.fillText(foot, w / 2, h - pad * 0.7);
+  return c;
+}
+$('qGo').onclick = async () => {
+  const rooms = qrRooms();
+  if (!rooms.length) { toast('No rooms selected'); return; }
+  const btn = $('qGo'); btn.disabled = true; btn.textContent = 'Building…';
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    await publishRooms(rooms.map(r => r.code)); // make sure every label's page exists
+    if ($('qFormat').value === 'avery') {
+      const a = { top: Number($('qTop').value), left: Number($('qLeft').value), px: Number($('qPx').value), py: Number($('qPy').value) };
+      store('pcg_avery', JSON.stringify(a));
+      let slot = Math.min(12, Math.max(1, Number($('qStart').value) || 1)) - 1, html = '', page = '';
+      rooms.forEach(r => {
+        page += `<div class="lbl" style="left:${a.left + (slot % 3) * a.px}in;top:${a.top + Math.floor(slot / 3) * a.py}in"><img src="${labelCanvas(r, 600, 600).toDataURL('image/png')}"></div>`;
+        if (++slot === 12) { html += `<div class="lbl-page">${page}</div>`; page = ''; slot = 0; }
+      });
+      if (page) html += `<div class="lbl-page">${page}</div>`;
+      $('pageStyle').textContent = '@media print{@page{size:letter portrait;margin:0}}';
+      $('printArea').innerHTML = html;
+      $('qrModal').classList.add('hidden');
+      setTimeout(() => window.print(), 250);
+    } else {
+      S.labelImgs = rooms.map(r => ({ r, url: labelCanvas(r, 384, 448).toDataURL('image/png') }));
+      $('qOut').innerHTML = '<div class="meta">Tap a label to open it, then save it (long-press on a phone or iPad) and print it from your label printer\'s app.</div><div class="lblgrid">' +
+        S.labelImgs.map((l, i) => `<figure><a href="${l.url}" download="Room_${esc(l.r.room).replace(/\s+/g, '_')}.png" data-i="${i}"><img src="${l.url}" alt=""></a>${esc(l.r.room)}</figure>`).join('') + '</div>';
+      $('qStrip').classList.remove('hidden');
+    }
+  } catch (err) { toast('Error: ' + (err.message || err), 6000); }
+  finally { btn.disabled = false; btn.textContent = 'Build labels'; }
+};
+addEventListener('afterprint', () => { $('printArea').innerHTML = ''; });
+$('qOut').addEventListener('click', e => {
+  const a = e.target.closest('a[data-i]'); if (!a || !IOS) return;
+  e.preventDefault(); $('lightbox').querySelector('img').src = a.getAttribute('href'); $('lightbox').classList.remove('hidden');
+});
+// One tall image per 30 labels with cut lines — label-printer apps can print it in one go.
+$('qStrip').onclick = async () => {
+  const L = S.labelImgs || [], per = 30, gap = 24;
+  for (let k = 0; k < L.length; k += per) {
+    const part = L.slice(k, k + per), c = document.createElement('canvas');
+    c.width = 384; c.height = part.length * (448 + gap);
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    for (let i = 0; i < part.length; i++) {
+      const im = await new Promise(res => { const m = new Image(); m.onload = () => res(m); m.src = part[i].url; });
+      x.drawImage(im, 0, i * (448 + gap));
+      x.setLineDash([8, 8]); x.beginPath(); x.moveTo(0, i * (448 + gap) + 448 + gap / 2); x.lineTo(384, i * (448 + gap) + 448 + gap / 2); x.stroke();
+    }
+    const url = c.toDataURL('image/png');
+    if (IOS) { $('lightbox').querySelector('img').src = url; $('lightbox').classList.remove('hidden'); }
+    else { const a = document.createElement('a'); a.href = url; a.download = `QR_labels_${k + 1}-${k + part.length}.png`; document.body.appendChild(a); a.click(); a.remove(); }
+  }
+};

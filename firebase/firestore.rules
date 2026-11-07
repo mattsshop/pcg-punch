@@ -1,5 +1,5 @@
 rules_version = '2';
-// PCG Punch — Firestore security rules (v0.2.0)
+// PCG Punch — Firestore security rules (v0.4.0)
 // Paste into Firebase console > Firestore Database > Rules > Publish.
 // OWNER: the Google account below is always Admin (so you can never lock yourself out).
 service cloud.firestore {
@@ -55,7 +55,8 @@ service cloud.firestore {
     // Read-only room cards for anonymous QR scans: room number, type, and open items'
     // number / trade / description / status only. No names, notes, dates or plans.
     match /public/{code} {
-      allow read: if true;
+      allow get: if true;            // one room card at a time — nobody can list them all
+      allow list: if hasRole('Admin');
       allow write: if hasRole('Crew');
     }
 
