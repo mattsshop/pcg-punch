@@ -1,5 +1,5 @@
 rules_version = '2';
-// PCG Punch — Firestore security rules (v0.1.0)
+// PCG Punch — Firestore security rules (v0.2.0)
 // Paste into Firebase console > Firestore Database > Rules > Publish.
 // OWNER: the Google account below is always Admin (so you can never lock yourself out).
 service cloud.firestore {
@@ -21,10 +21,11 @@ service cloud.firestore {
     // Only an Admin can approve, change roles or revoke.
     match /users/{uid} {
       allow read: if (signedIn() && request.auth.uid == uid) || hasRole('Admin');
-      allow create: if signedIn() && request.auth.uid == uid
+      allow create: if hasRole('Admin')
+        || (signedIn() && request.auth.uid == uid
         && request.resource.data.status == 'Pending'
         && request.resource.data.role in ['Crew', 'Viewer']
-        && request.resource.data.keys().hasOnly(['name', 'email', 'company', 'role', 'status', 'requestedAt']);
+        && request.resource.data.keys().hasOnly(['name', 'email', 'company', 'role', 'status', 'requestedAt']));
       allow update: if hasRole('Admin')
         || (signedIn() && request.auth.uid == uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'company', 'lastSeen']));

@@ -20,8 +20,8 @@ until the switch. The screens, plans, QR labels, Fieldwire export and PDF report
 
 | Step | What | Status |
 |---|---|---|
-| 1 | Repo, Firebase project, security rules, setup check page | **in progress** |
-| 2 | Sign-in, access requests and approvals, projects, floor plan upload, plan viewer | |
+| 1 | Repo, Firebase project, security rules, setup check page | done (v0.1) |
+| 2 | Sign-in, access requests and approvals, projects, floor plan upload, plan viewer | done (v0.2) |
 | 3 | Tags on plans, item details, photos, live updates, offline saving, item numbers | |
 | 4 | Rooms, QR labels, public read-only room pages, scan log | |
 | 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | |
@@ -52,7 +52,10 @@ Google account, change it in both files before publishing.
 
 | File | What it is |
 |---|---|
-| `index.html` | The app (setup check page during step 1) |
+| `index.html` | The app's screens |
+| `app.js` | The app's logic |
+| `style.css` | The app's look |
+| `fb.js` | Loads the Firebase SDK (one place to change its version) |
 | `config.js` | Firebase project values — **edit this** |
 | `firebase/firestore.rules` | Who can read and change which data |
 | `firebase/storage.rules` | Who can read and upload plans and photos |

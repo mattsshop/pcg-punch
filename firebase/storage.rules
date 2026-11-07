@@ -1,5 +1,5 @@
 rules_version = '2';
-// PCG Punch — Storage security rules (v0.1.0)
+// PCG Punch — Storage security rules (v0.2.0)
 // Paste into Firebase console > Storage > Rules > Publish.
 // When asked, allow Storage to read Firestore (it checks each person's role there).
 service firebase.storage {

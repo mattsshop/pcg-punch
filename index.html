@@ -2,118 +2,121 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PCG Punch – Setup check</title>
-<script src="config.js"></script>
-<style>
-  :root{--bg:#f6f7f9;--card:#fff;--ink:#1f2328;--mut:#5f6368;--line:#dadce0;--acc:#1a73e8;--ok:#188038;--bad:#d93025;--warn:#b06000}
-  @media (prefers-color-scheme: dark){:root{--bg:#16181c;--card:#1f2228;--ink:#e8eaed;--mut:#9aa0a6;--line:#3c4043}}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
-  .wrap{max-width:620px;margin:24px auto}
-  h1{font-size:24px;margin:0 0 4px} .sub{color:var(--mut);margin-bottom:16px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
-  button{font:inherit;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer}
-  button.secondary{background:transparent;color:var(--acc)}
-  ul{list-style:none;padding:0;margin:0}
-  li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} li:last-child{border-bottom:0}
-  .ic{width:22px;flex:none;text-align:center;font-weight:700}
-  .ok .ic{color:var(--ok)} .bad .ic{color:var(--bad)} .wait .ic{color:var(--mut)} .warn .ic{color:var(--warn)}
-  .msg{font-size:13px;color:var(--mut);margin-top:2px}
-  code{font-size:13px}
-  .foot{font-size:12px;color:var(--mut);text-align:center;margin-top:16px}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>PCG Punch</title>
+<meta name="theme-color" content="#1a73e8">
+<link rel="stylesheet" href="style.css?v=0.2.0">
+<script src="config.js?v=0.2.0"></script>
 </head>
 <body>
-<div class="wrap">
-  <h1>PCG Punch</h1>
-  <div class="sub">Setup check · v0.1.1 — this page becomes the app in step 2.</div>
-  <div class="card">
-    <div id="who" style="margin-bottom:10px">Not signed in.</div>
-    <button id="signIn">Sign in with Google</button>
-    <button id="signOut" class="secondary" style="display:none">Sign out</button>
+
+<!-- Sign in -->
+<section id="scrSignin" class="screen hidden">
+  <div class="auth">
+    <h1>PCG Punch</h1>
+    <p class="sub">Sign in to see the punch list.</p>
+    <button id="googleBtn" class="gbtn" type="button">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.17.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Continue with Google
+    </button>
+    <div class="or">or use email</div>
+    <div class="stack">
+      <input id="siEmail" type="email" placeholder="Email" autocomplete="email">
+      <input id="siPass" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+      <div class="row"><button id="siBtn" class="primary">Sign in</button><button id="suBtn">Create account</button></div>
+      <a href="#" id="forgot" style="font-size:13px">Forgot password?</a>
+      <div class="err" id="siErr"></div>
+    </div>
+    <div class="ver" id="verSignin"></div>
   </div>
-  <div class="card"><ul id="checks"></ul></div>
-  <div class="foot">Perimeter Construction Group</div>
-</div>
+</section>
 
-<script type="module">
+<!-- Verify email (email/password accounts) -->
+<section id="scrVerify" class="screen hidden">
+  <div class="auth">
+    <h1>Check your email</h1>
+    <p class="sub">We sent a link to <b id="vEmail"></b>. Open it to confirm your address, then come back and tap Continue.</p>
+    <div class="btns"><button id="vDone" class="primary">Continue</button><button id="vResend">Send again</button><span class="sp"></span><button id="vOut">Sign out</button></div>
+    <div class="err" id="vErr"></div>
+  </div>
+</section>
 
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const rows = {};
-function set(key, state, title, msg) {
-  rows[key] = { state, title, msg };
-  const icon = { ok: '✓', bad: '✕', wait: '…', warn: '!' };
-  $('checks').innerHTML = Object.values(rows).map(r =>
-    `<li class="${r.state}"><span class="ic">${icon[r.state]}</span><div><div>${esc(r.title)}</div>${r.msg ? `<div class="msg">${esc(r.msg)}</div>` : ''}</div></li>`).join('');
-}
+<!-- Request access -->
+<section id="scrRequest" class="screen hidden">
+  <div class="auth">
+    <h1>Request access</h1>
+    <p class="sub">The project manager approves each person. Signed in as <b id="rEmail"></b>.</p>
+    <div class="stack">
+      <label>Your name<input id="rName" autocomplete="name"></label>
+      <label>Company<input id="rCompany" autocomplete="organization"></label>
+      <div class="btns"><button id="rSend" class="primary">Request access</button><span class="sp"></span><button id="rOut">Sign out</button></div>
+      <div class="err" id="rErr"></div>
+    </div>
+  </div>
+</section>
 
-const cfg = (window.PCG_CONFIG || {}).firebase || {};
-if (!cfg.apiKey || /REPLACE_ME/.test(JSON.stringify(cfg))) {
-  set('cfg', 'bad', 'config.js not filled in yet', 'Paste the firebaseConfig values from Firebase console > Project settings > Your apps.');
-  $('signIn').disabled = true;
-} else {
-  set('cfg', 'ok', 'config.js filled in', 'Project: ' + cfg.projectId);
-  const V = '10.12.2', F = n => import(`https://www.gstatic.com/firebasejs/${V}/firebase-${n}.js`);
-  let m;
-  try { m = Object.assign({}, ...(await Promise.all(['app', 'auth', 'firestore', 'storage'].map(F)))); }
-  catch (e) { set('sdk', 'bad', 'Could not load Firebase from the internet', 'Check the connection, then reload.'); throw e; }
-  const { initializeApp, getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
-    getFirestore, collection, getDocs, limit, query, doc, setDoc, deleteDoc, getStorage, ref, uploadString, deleteObject } = m;
-  const app = initializeApp(cfg);
-  const auth = getAuth(app), db = getFirestore(app), st = getStorage(app);
+<!-- Pending / revoked -->
+<section id="scrWait" class="screen hidden">
+  <div class="auth">
+    <h1 id="wTitle">Waiting for approval</h1>
+    <p class="sub" id="wText"></p>
+    <div class="btns"><span class="sp"></span><button id="wOut">Sign out</button></div>
+  </div>
+</section>
 
-  $('signIn').onclick = async () => {
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch (e) {
-      const hint = /unauthorized-domain/.test(e.code) ? 'Add ' + location.hostname + ' under Authentication > Settings > Authorized domains.'
-        : /operation-not-allowed/.test(e.code) ? 'Turn on Google under Authentication > Sign-in method.' : e.message;
-      set('auth', 'bad', 'Google sign-in failed', hint);
-    }
-  };
-  $('signOut').onclick = () => signOut(auth);
+<!-- Main app -->
+<section id="scrApp" class="hidden">
+  <header>
+    <div class="brand">
+      <select id="projSel" aria-label="Project"></select>
+      <div class="v"><span id="ver"></span> · <a href="#" id="meLink"></a></div>
+    </div>
+    <nav id="floorTabs"></nav>
+    <div class="actions">
+      <button id="plansBtn" class="admin-only">Plans</button>
+      <button id="projBtn" class="admin-only">Projects</button>
+      <button id="usersBtn" class="admin-only">Users<span id="pendBadge"></span></button>
+    </div>
+  </header>
+  <main>
+    <section id="viewer">
+      <div id="stage"><img id="plan" alt=""><div id="pins"></div></div>
+      <div id="planMsg"></div>
+      <div class="zoomctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zfit" title="Fit">⤢</button></div>
+    </section>
+  </main>
+</section>
 
-  onAuthStateChanged(auth, async user => {
-    $('signIn').style.display = user ? 'none' : '';
-    $('signOut').style.display = user ? '' : 'none';
-    $('who').textContent = user ? 'Signed in as ' + user.email : 'Not signed in.';
-    ['auth', 'fs', 'fsw', 'stor'].forEach(k => delete rows[k]);
-    if (!user) { set('auth', 'wait', 'Sign in with Google to run the remaining checks'); return; }
-    set('auth', 'ok', 'Google sign-in works', user.email);
+<!-- Projects (Admin) -->
+<div class="modal hidden" id="projModal"><div class="card">
+  <h3>Projects</h3>
+  <table class="tbl" id="projTable"></table>
+  <h4 style="margin:16px 0 6px">New project</h4>
+  <div class="grid">
+    <div class="full"><label>Hotel name<input id="npName" placeholder="e.g. Home2 Suites Douglasville"></label></div>
+    <div><label>Number of floors<input id="npFloors" type="number" min="1" max="30" value="4"></label></div>
+  </div>
+  <div class="btns"><button class="primary" id="npCreate">Create project</button><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
 
-    // Firestore: owner can read and write projects (proves the database exists and the rules are published)
-    set('fs', 'wait', 'Firestore…');
-    try {
-      await getDocs(query(collection(db, 'projects'), limit(1)));
-      set('fs', 'ok', 'Firestore database is on and the rules are published');
-      set('fsw', 'wait', 'Firestore write…');
-      const t = doc(db, 'projects', '_setup_check');
-      await setDoc(t, { at: new Date().toISOString(), by: user.email });
-      await deleteDoc(t);
-      set('fsw', 'ok', 'You have Admin access (owner account)');
-    } catch (e) {
-      const m = /permission/.test(e.code)
-        ? 'Permission denied. Either the rules are not published yet, or ' + user.email + ' is not the owner email in firestore.rules.'
-        : /not-found|failed-precondition|unavailable/.test(e.code) ? 'Create the Firestore database (Build > Firestore Database > Create database).' : e.message;
-      set('fs', 'bad', 'Firestore check failed', m);
-    }
+<!-- Plans (Admin) -->
+<div class="modal hidden" id="plansModal"><div class="card" style="width:640px">
+  <h3>Floors and plans — <span id="plProj"></span></h3>
+  <div id="plList"></div>
+  <div class="meta">PDF plans are turned into a sharp image when uploaded (pick the page for multi-page sets). For best results use one floor per PDF page.</div>
+  <div class="btns"><button id="plAdd">+ Add floor</button><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
 
-    // Storage: owner can upload and delete a tiny test file
-    set('stor', 'wait', 'Storage…');
-    try {
-      const r = ref(st, 'projects/_setup_check/plans/check.txt');
-      await uploadString(r, 'ok ' + new Date().toISOString());
-      await deleteObject(r);
-      set('stor', 'ok', 'Storage is on and its rules are published');
-    } catch (e) {
-      const m = /unauthorized|permission/.test(e.code)
-        ? 'Permission denied. Publish storage.rules, and allow Storage to read Firestore when the console asks.'
-        : /bucket|not-found|no-default/.test(e.code + e.message) ? 'Turn on Storage (Build > Storage > Get started). It needs the Blaze plan.' : (e.code || e.message);
-      set('stor', 'bad', 'Storage check failed', m);
-    }
-  });
-}
-</script>
+<!-- Users (Admin) -->
+<div class="modal hidden" id="usersModal"><div class="card" style="width:860px">
+  <h3>Users</h3>
+  <div style="overflow:auto"><table class="tbl" id="uTable"></table></div>
+  <div class="meta">Viewer = view &amp; print · Crew = add and update items · Admin = everything, including plans, projects and users.
+    People who are waiting see the app open by itself as soon as you approve them.</div>
+  <div class="btns"><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
+
+<div id="toast" class="hidden"></div>
+<script type="module" src="app.js?v=0.2.0"></script>
 </body>
 </html>
