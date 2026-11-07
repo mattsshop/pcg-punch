@@ -1,0 +1,68 @@
+rules_version = '2';
+// PCG Punch — Firestore security rules (v0.1.0)
+// Paste into Firebase console > Firestore Database > Rules > Publish.
+// OWNER: the Google account below is always Admin (so you can never lock yourself out).
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function ownerEmail() { return 'matt@mattsshop.com'; }
+
+    function signedIn() { return request.auth != null; }
+    function isOwner() {
+      return signedIn() && request.auth.token.email == ownerEmail() && request.auth.token.email_verified == true;
+    }
+    function userDoc() { return get(/databases/$(db)/documents/users/$(request.auth.uid)).data; }
+    function approved() {
+      return signedIn() && exists(/databases/$(db)/documents/users/$(request.auth.uid)) && userDoc().status == 'Approved';
+    }
+    function rank(r) { return r == 'Admin' ? 3 : (r == 'Crew' ? 2 : (r == 'Viewer' ? 1 : 0)); }
+    function hasRole(r) { return isOwner() || (approved() && rank(userDoc().role) >= rank(r)); }
+
+    // People. Anyone signed in can ask for access (creates their own Pending record).
+    // Only an Admin can approve, change roles or revoke.
+    match /users/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || hasRole('Admin');
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.role in ['Crew', 'Viewer']
+        && request.resource.data.keys().hasOnly(['name', 'email', 'company', 'role', 'status', 'requestedAt']);
+      allow update: if hasRole('Admin')
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'company', 'lastSeen']));
+      allow delete: if hasRole('Admin');
+    }
+
+    // Hotels (projects) and everything inside them.
+    match /projects/{pid} {
+      allow read: if hasRole('Viewer');
+      allow create, delete: if hasRole('Admin');
+      // Crew may only bump the item-number counter.
+      allow update: if hasRole('Admin')
+        || (hasRole('Crew') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nextNumber']));
+
+      match /items/{id} {
+        allow read: if hasRole('Viewer');
+        allow create, update: if hasRole('Crew');
+        allow delete: if hasRole('Admin');
+      }
+      // floors, rooms, trades, settings
+      match /{collection}/{doc} {
+        allow read: if hasRole('Viewer');
+        allow write: if hasRole('Admin');
+      }
+    }
+
+    // Read-only room cards for anonymous QR scans: room number, type, and open items'
+    // number / trade / description / status only. No names, notes, dates or plans.
+    match /public/{code} {
+      allow read: if true;
+      allow write: if hasRole('Crew');
+    }
+
+    // Scan log: anyone may add one small record; only Admins read it.
+    match /scans/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['code', 'at', 'uid'])
+        && request.resource.data.code is string && request.resource.data.code.size() <= 40;
+      allow read, delete: if hasRole('Admin');
+    }
+  }
+}

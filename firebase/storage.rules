@@ -1,0 +1,37 @@
+rules_version = '2';
+// PCG Punch — Storage security rules (v0.1.0)
+// Paste into Firebase console > Storage > Rules > Publish.
+// When asked, allow Storage to read Firestore (it checks each person's role there).
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isOwner() {
+      return signedIn() && request.auth.token.email == 'matt@mattsshop.com' && request.auth.token.email_verified == true;
+    }
+    function userPath() { return /databases/(default)/documents/users/$(request.auth.uid); }
+    function role(roles) {
+      return isOwner() || (signedIn() && firestore.exists(userPath())
+        && firestore.get(userPath()).data.status == 'Approved'
+        && firestore.get(userPath()).data.role in roles);
+    }
+
+    // Floor plans (PDF or image), uploaded by Admins
+    match /projects/{pid}/plans/{file} {
+      allow read: if role(['Viewer', 'Crew', 'Admin']);
+      allow write: if role(['Admin']) && request.resource.size < 40 * 1024 * 1024;
+    }
+    // Item photos and their small previews
+    match /projects/{pid}/photos/{file} {
+      allow read: if role(['Viewer', 'Crew', 'Admin']);
+      allow create: if role(['Crew', 'Admin']) && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if role(['Crew', 'Admin']);
+    }
+    // Small public previews shown on read-only QR room cards
+    match /public/{pid}/{file} {
+      allow read: if true;
+      allow write: if role(['Crew', 'Admin']) && request.resource.size < 300 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

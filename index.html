@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCG Punch – Setup check</title>
+<script src="config.js"></script>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1f2328;--mut:#5f6368;--line:#dadce0;--acc:#1a73e8;--ok:#188038;--bad:#d93025;--warn:#b06000}
+  @media (prefers-color-scheme: dark){:root{--bg:#16181c;--card:#1f2228;--ink:#e8eaed;--mut:#9aa0a6;--line:#3c4043}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
+  .wrap{max-width:620px;margin:24px auto}
+  h1{font-size:24px;margin:0 0 4px} .sub{color:var(--mut);margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+  button{font:inherit;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer}
+  button.secondary{background:transparent;color:var(--acc)}
+  ul{list-style:none;padding:0;margin:0}
+  li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} li:last-child{border-bottom:0}
+  .ic{width:22px;flex:none;text-align:center;font-weight:700}
+  .ok .ic{color:var(--ok)} .bad .ic{color:var(--bad)} .wait .ic{color:var(--mut)} .warn .ic{color:var(--warn)}
+  .msg{font-size:13px;color:var(--mut);margin-top:2px}
+  code{font-size:13px}
+  .foot{font-size:12px;color:var(--mut);text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PCG Punch</h1>
+  <div class="sub">Setup check · v0.1.0 — this page becomes the app in step 2.</div>
+  <div class="card">
+    <div id="who" style="margin-bottom:10px">Not signed in.</div>
+    <button id="signIn">Sign in with Google</button>
+    <button id="signOut" class="secondary" style="display:none">Sign out</button>
+  </div>
+  <div class="card"><ul id="checks"></ul></div>
+  <div class="foot">Perimeter Construction Group</div>
+</div>
+
+<script type="module">
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const rows = {};
+function set(key, state, title, msg) {
+  rows[key] = { state, title, msg };
+  const icon = { ok: '✓', bad: '✕', wait: '…', warn: '!' };
+  $('checks').innerHTML = Object.values(rows).map(r =>
+    `<li class="${r.state}"><span class="ic">${icon[r.state]}</span><div><div>${esc(r.title)}</div>${r.msg ? `<div class="msg">${esc(r.msg)}</div>` : ''}</div></li>`).join('');
+}
+
+const cfg = (window.PCG_CONFIG || {}).firebase || {};
+if (!cfg.apiKey || /REPLACE_ME/.test(JSON.stringify(cfg))) {
+  set('cfg', 'bad', 'config.js not filled in yet', 'Paste the firebaseConfig values from Firebase console > Project settings > Your apps.');
+  $('signIn').disabled = true;
+} else {
+  set('cfg', 'ok', 'config.js filled in', 'Project: ' + cfg.projectId);
+  const V = '10.12.2', F = n => import(`https://www.gstatic.com/firebasejs/${V}/firebase-${n}.js`);
+  let m;
+  try { m = Object.assign({}, ...(await Promise.all(['app', 'auth', 'firestore', 'storage'].map(F)))); }
+  catch (e) { set('sdk', 'bad', 'Could not load Firebase from the internet', 'Check the connection, then reload.'); throw e; }
+  const { initializeApp, getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+    getFirestore, collection, getDocs, limit, query, doc, setDoc, deleteDoc, getStorage, ref, uploadString, deleteObject } = m;
+  const app = initializeApp(cfg);
+  const auth = getAuth(app), db = getFirestore(app), st = getStorage(app);
+
+  $('signIn').onclick = async () => {
+    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+    catch (e) {
+      const hint = /unauthorized-domain/.test(e.code) ? 'Add ' + location.hostname + ' under Authentication > Settings > Authorized domains.'
+        : /operation-not-allowed/.test(e.code) ? 'Turn on Google under Authentication > Sign-in method.' : e.message;
+      set('auth', 'bad', 'Google sign-in failed', hint);
+    }
+  };
+  $('signOut').onclick = () => signOut(auth);
+
+  onAuthStateChanged(auth, async user => {
+    $('signIn').style.display = user ? 'none' : '';
+    $('signOut').style.display = user ? '' : 'none';
+    $('who').textContent = user ? 'Signed in as ' + user.email : 'Not signed in.';
+    ['auth', 'fs', 'fsw', 'stor'].forEach(k => delete rows[k]);
+    if (!user) { set('auth', 'wait', 'Sign in with Google to run the remaining checks'); return; }
+    set('auth', 'ok', 'Google sign-in works', user.email);
+
+    // Firestore: owner can read and write projects (proves the database exists and the rules are published)
+    set('fs', 'wait', 'Firestore…');
+    try {
+      await getDocs(query(collection(db, 'projects'), limit(1)));
+      set('fs', 'ok', 'Firestore database is on and the rules are published');
+      set('fsw', 'wait', 'Firestore write…');
+      const t = doc(db, 'projects', '_setup_check');
+      await setDoc(t, { at: new Date().toISOString(), by: user.email });
+      await deleteDoc(t);
+      set('fsw', 'ok', 'You have Admin access (owner account)');
+    } catch (e) {
+      const m = /permission/.test(e.code)
+        ? 'Permission denied. Either the rules are not published yet, or ' + user.email + ' is not the owner email in firestore.rules.'
+        : /not-found|failed-precondition|unavailable/.test(e.code) ? 'Create the Firestore database (Build > Firestore Database > Create database).' : e.message;
+      set('fs', 'bad', 'Firestore check failed', m);
+    }
+
+    // Storage: owner can upload and delete a tiny test file
+    set('stor', 'wait', 'Storage…');
+    try {
+      const r = ref(st, 'projects/_setup_check/plans/check.txt');
+      await uploadString(r, 'ok ' + new Date().toISOString());
+      await deleteObject(r);
+      set('stor', 'ok', 'Storage is on and its rules are published');
+    } catch (e) {
+      const m = /unauthorized|permission/.test(e.code)
+        ? 'Permission denied. Publish storage.rules, and allow Storage to read Firestore when the console asks.'
+        : /bucket|not-found|no-default/.test(e.code + e.message) ? 'Turn on Storage (Build > Storage > Get started). It needs the Blaze plan.' : (e.code || e.message);
+      set('stor', 'bad', 'Storage check failed', m);
+    }
+  });
+}
+</script>
+</body>
+</html>
