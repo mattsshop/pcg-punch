@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.4.1 (2026-11-07)
+- Fix: **Print QR labels** could stay stuck on "Building…" while it waited for the server to confirm the room pages. Labels now build right away; room pages save in the background.
+
 ## v0.4.0 (2026-11-07) Step 4 — rooms and QR codes
 - **Rooms & QR** (Admin): load the WoodSpring Cartersville room list (122 guest rooms + common areas, positioned from plans A1.1/A1.2), or add rooms by hand ("101-130, Lobby") and **Place** them by tapping the plan. Turn rooms off, **Show** a room's items.
 - New tags fill in the nearest room automatically (can be turned off).

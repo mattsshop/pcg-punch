@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.4.0';
+const VERSION = 'v0.4.1';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -946,13 +946,16 @@ function publicDoc(r) {
   return { pid: S.pid, projectName: p.name || '', room: r.room, name: r.name || '', type: r.type || '', floor: r.floor,
     floorLabel: floorLabel(r.floor), log: !!st.logScans, items, updatedAt: F.serverTimestamp() };
 }
-async function publishRooms(codes) {
-  const rs = (S.rooms || []).filter(r => codes.includes(r.code));
+// Writes go to the device first and sync in the background. The returned promise settles when the
+// server confirms (or after 15 s), so nothing on screen ever waits on it for long.
+function publishRooms(codes) {
+  const rs = (S.rooms || []).filter(r => codes.includes(r.code)), jobs = [];
   for (let k = 0; k < rs.length; k += 400) {
     const b = F.writeBatch(db);
     rs.slice(k, k + 400).forEach(r => b.set(F.doc(db, 'public', r.code), publicDoc(r)));
-    await b.commit().catch(e => toast('Public pages not updated: ' + friendly(e), 6000));
+    jobs.push(b.commit().catch(e => { toast('Room pages not updated: ' + friendly(e), 7000); throw e; }));
   }
+  return Promise.race([Promise.all(jobs), new Promise(res => setTimeout(res, 15000))]).catch(() => {});
 }
 
 // ---- Rooms & QR window (Admin)
@@ -973,7 +976,7 @@ document.querySelectorAll('[data-set]').forEach(c => c.onchange = async () => {
   await F.updateDoc(F.doc(db, 'projects', S.pid), { settings: next }).catch(e => toast(friendly(e), 6000));
   if (c.dataset.set !== 'autoRoom') { toast('Updating public pages…'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)).then(() => toast('Public pages updated')), 600); }
 });
-$('rmPublish').onclick = () => publishRooms(S.rooms.map(r => r.code)).then(() => toast('Public pages updated'));
+$('rmPublish').onclick = () => { toast('Updating room pages…', 15000); publishRooms(S.rooms.map(r => r.code)).then(() => toast('Room pages updated')); };
 
 async function loadScanCounts() {
   S.scanCounts = {};
@@ -1102,7 +1105,7 @@ $('qGo').onclick = async () => {
   const btn = $('qGo'); btn.disabled = true; btn.textContent = 'Building…';
   await new Promise(r => setTimeout(r, 30));
   try {
-    await publishRooms(rooms.map(r => r.code)); // make sure every label's page exists
+    publishRooms(rooms.map(r => r.code)); // room pages save in the background (also with no signal); labels don't wait for it
     if ($('qFormat').value === 'avery') {
       const a = { top: Number($('qTop').value), left: Number($('qLeft').value), px: Number($('qPx').value), py: Number($('qPy').value) };
       store('pcg_avery', JSON.stringify(a));
