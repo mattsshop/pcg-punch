@@ -1,5 +1,10 @@
 # PCG Punch changelog
 
+## v0.5.2 (2026-11-07)
+- After sending, the message says how many photos went in the email (e.g. "3 of 3 photos"), how many were still waiting to upload, and whether plans were left out.
+- If photo uploads are refused, the list footer now says why (e.g. "upload refused: Storage rules") instead of just "photo(s) to upload".
+- Mailer v0.5.2: accepts every photo link from this Firebase project, and puts a "View photo" link in the email if a photo can't be attached. Photos in the email link to the full-size picture. **Redeploy the mailer** (Manage deployments → ✏️ → New version).
+
 ## v0.5.1 (2026-11-07)
 - Email connected to the PCG Punch Mailer (config.js).
 

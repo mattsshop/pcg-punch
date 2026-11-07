@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.1';
+const VERSION = 'v0.5.2';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -789,10 +789,12 @@ async function processPhotoQueue() {
         const [url, thumbUrl] = await Promise.all([F.getDownloadURL(F.ref(storage, base + '.jpg')), F.getDownloadURL(F.ref(storage, base + '-thumb.jpg'))]);
         await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
           { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
-        await PQ.del(e.k);
+        await PQ.del(e.k); S.pqError = '';
         const it = S.items.find(x => x.id === e.itemId); if (it && e.pid === S.pid) markDirty(it);
       } catch (err) {
-        if (/not-found/.test(err.code || '')) { await PQ.del(e.k); continue; } // item was deleted
+        if (/not-found/.test(err.code || '') && !/object-not-found/.test(err.code || '')) { await PQ.del(e.k); continue; } // item was deleted
+        console.warn('Photo upload failed', err);
+        S.pqError = navigator.onLine === false ? '' : (err.code || err.message || 'unknown error');
         break; // no signal or another problem: try again later
       }
     }
@@ -805,7 +807,8 @@ setInterval(processPhotoQueue, 30000);
 // ---- connection / sync status
 function updateSync() {
   const saving = (S.items || []).filter(i => i._pending).length, photos = Object.values(S.queued).flat().length;
-  $('syncState').textContent = [saving ? `${saving} change(s) to sync` : '', photos ? `${photos} photo(s) to upload` : ''].filter(Boolean).join(' · ');
+  const why = photos && S.pqError ? ` (upload refused: ${/unauthorized/.test(S.pqError) ? 'Storage rules — see README step 1.5' : S.pqError})` : '';
+  $('syncState').textContent = [saving ? `${saving} change(s) to sync` : '', photos ? `${photos} photo(s) to upload${why}` : ''].filter(Boolean).join(' · ');
 }
 function updateNet() {
   const off = navigator.onLine === false;
@@ -1242,7 +1245,13 @@ $('mSend').onclick = async () => {
     if (!out.ok) throw new Error(out.error);
     if (v.startsWith('trade:')) rememberTradeEmail(v.slice(6), to);
     $('mailModal').classList.add('hidden');
-    toast(`Sent ${out.result.sent} item(s)` + (noPlans ? ' — plans left out (see README: plan images in email)' : ''), 7000);
+    const r = out.result || {}, notes = [];
+    const inApp = body.items.reduce((n, i) => n + i.photos.length, 0);
+    const waiting = items.reduce((n, i) => n + (S.queued[i.id] || []).length, 0);
+    if (body.includePhotos) notes.push(`${r.photos != null ? r.photos : '?'} of ${inApp} photo(s)` + (r.mailer ? '' : ' (old mailer — redeploy it)'));
+    if (waiting) notes.push(`${waiting} photo(s) not uploaded yet, left out`);
+    if (noPlans) notes.push('plans left out (see README: plan images in email)');
+    toast(`Sent ${r.sent} item(s)` + (notes.length ? ' — ' + notes.join(' · ') : ''), 10000);
   } catch (e) { toast('Not sent: ' + (navigator.onLine === false ? 'no signal' : e.message), 8000); }
   finally { btn.disabled = false; btn.textContent = 'Send'; }
 };

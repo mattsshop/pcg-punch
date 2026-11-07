@@ -1,5 +1,5 @@
 /**
- * PCG Punch — email sender (v0.5.0)
+ * PCG Punch — email sender (v0.5.2)
  *
  * The PCG Punch app (GitHub Pages + Firebase) asks this script to send punch-list emails,
  * because Firebase can't send email itself. It only sends for people who are signed in to
@@ -25,7 +25,7 @@ const MAX_PHOTOS = 150;
 const COMPANY = 'Perimeter Construction Group';
 
 function doGet() {
-  return ContentService.createTextOutput('PCG Punch mailer v0.5.0 is running. Daily emails left: ' + MailApp.getRemainingDailyQuota());
+  return ContentService.createTextOutput('PCG Punch mailer v0.5.2 is running. Daily emails left: ' + MailApp.getRemainingDailyQuota());
 }
 
 /** Body (text/plain JSON): { idToken, to, subject, note, projectName, items: [...], plans: [{floor, label, data}], includePhotos } */
@@ -60,7 +60,8 @@ function sender_(idToken) {
 const isEmail_ = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 const esc_ = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Only fetch photos from this project's Firebase Storage
-const PHOTO_PREFIX = 'https://firebasestorage.googleapis.com/v0/b/' + FIREBASE_PROJECT + '.firebasestorage.app/o/';
+const PHOTO_HOST = 'https://firebasestorage.googleapis.com/v0/b/';
+const isPhotoUrl_ = u => { u = String(u || ''); return u.indexOf(PHOTO_HOST) === 0 && u.slice(PHOTO_HOST.length).split('/')[0].indexOf(FIREBASE_PROJECT) === 0; };
 
 function send_(p) {
   const me = sender_(p.idToken);
@@ -86,7 +87,7 @@ function send_(p) {
     Utilities.formatDate(new Date(), 'America/New_York', 'MMM d, yyyy') + ' by ' + esc_(me.name) + '</div>';
   if (p.note) html += '<p style="white-space:pre-wrap">' + esc_(p.note) + '</p>';
 
-  let photos = 0, omitted = 0;
+  let photos = 0, omitted = 0, failed = 0;
   const floors = [];
   items.forEach(i => { if (floors.indexOf(i.floorLabel) < 0) floors.push(i.floorLabel); });
   floors.forEach(fl => {
@@ -101,14 +102,18 @@ function send_(p) {
       (i.photos || []).forEach(u => {
         if (!p.includePhotos) return;
         if (photos >= MAX_PHOTOS) { omitted++; return; }
-        if (String(u).indexOf(PHOTO_PREFIX) !== 0) return;
+        if (!isPhotoUrl_(u)) { failed++; return; }
+        let ok = false;
         try {
           const r = UrlFetchApp.fetch(u, { muteHttpExceptions: true });
-          if (r.getResponseCode() !== 200) return;
-          const k = 'ph' + photos++;
-          inline[k] = r.getBlob().setName(k + '.jpg');
-          ph += '<img src="cid:' + k + '" style="width:110px;margin:2px;border:1px solid #ccc">';
-        } catch (e) {}
+          if (r.getResponseCode() === 200) {
+            const k = 'ph' + photos++;
+            inline[k] = r.getBlob().setContentType('image/jpeg').setName(k + '.jpg');
+            ph += '<a href="' + esc_(u) + '"><img src="cid:' + k + '" style="width:110px;margin:2px;border:1px solid #ccc"></a>';
+            ok = true;
+          } else console.warn('Photo fetch ' + r.getResponseCode() + ': ' + u);
+        } catch (e) { console.warn('Photo fetch failed: ' + e); }
+        if (!ok) { failed++; ph += '<a href="' + esc_(u) + '">View photo</a><br>'; }
       });
       if (!p.includePhotos && (i.photos || []).length) ph = i.photos.length + ' photo(s)';
       html += '<tr>' + ['<b>' + esc_(i.number == null ? '…' : i.number) + '</b>', esc_(i.room), esc_(i.trade),
@@ -132,5 +137,5 @@ function send_(p) {
   if (FROM_ALIAS) { try { if (GmailApp.getAliases().some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) alias = FROM_ALIAS; } catch (e) {} }
   if (alias) GmailApp.sendEmail(to.join(','), subject, 'This message needs an email app that shows HTML.', Object.assign({ from: alias }, opts));
   else MailApp.sendEmail(Object.assign({ to: to.join(','), subject: subject }, opts));
-  return { sent: items.length, photos: photos, omitted: omitted };
+  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.2' };
 }

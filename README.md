@@ -25,7 +25,7 @@ until the switch. The screens, plans, QR labels, Fieldwire export and PDF report
 | 3 | Tags on plans, item details, photos, live updates, offline saving, item numbers | done (v0.3) |
 | 4 | Rooms, QR labels, public read-only room pages, scan log | done (v0.4) |
 | 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | done (v0.5) |
-| 6 | Move WoodSpring Cartersville items and photos over from the Sheet and Drive; switch | |
+| 6 | Move items over from the Apps Script version | not needed |
 
 ## Step 1 — Firebase setup (Firebase console, about 15 minutes)
 
