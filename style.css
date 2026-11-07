@@ -163,3 +163,25 @@ details.adj summary{cursor:pointer;color:var(--acc)}
   .lbl img{width:100%;height:100%;display:block}
 }
 @media (max-width:700px){ .setgrid{grid-template-columns:1fr} }
+
+/* ---- v0.5.0: report printing ---- */
+@media print{
+  #printArea.report{font-family:Arial,sans-serif;color:#000;font-size:11px}
+  .pr-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:4px;margin-bottom:8px}
+  .pr-head h1{font-size:18px;margin:0}
+  .pr-sum{border-collapse:collapse;margin:6px 0 10px}
+  .pr-sum td,.pr-sum th{border:1px solid #999;padding:3px 8px;text-align:left}
+  .pr-floor{page-break-before:always}
+  .pr-floor h2{font-size:15px;margin:0 0 6px}
+  .pr-planbox{position:relative;display:inline-block;max-width:100%;border:1px solid #999}
+  .pr-planbox img{display:block;max-width:10in;max-height:6.8in}
+  .pr-pin{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;border:1.5px solid #fff;color:#fff;font:bold 8px Arial;display:flex;align-items:center;justify-content:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .pr-tbl{width:100%;border-collapse:collapse;margin-top:8px}
+  .pr-tbl.brk{page-break-before:always}
+  .pr-tbl th{background:#eee;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .pr-tbl th,.pr-tbl td{border:1px solid #999;padding:4px;vertical-align:top;text-align:left}
+  .pr-tbl tr{page-break-inside:avoid}
+  .pr-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .pr-ph{width:1.3in;height:1in;object-fit:cover;margin:1px;border:1px solid #ccc}
+  .pr-foot{margin-top:8px;color:#555;font-size:10px}
+}

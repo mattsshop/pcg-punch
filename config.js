@@ -9,5 +9,7 @@ window.PCG_CONFIG = {
     storageBucket: 'pcg-punch.firebasestorage.app',
     messagingSenderId: '345564530678',
     appId: '1:345564530678:web:b574fb4a01a0690bc469d7'
-  }
+  },
+  // Web app link of the "PCG Punch Mailer" Apps Script (apps-script/Mailer.gs). Ends in /exec.
+  MAILER_URL: ''
 };

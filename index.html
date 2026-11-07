@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.4.1">
-<script src="config.js?v=0.4.1"></script>
+<link rel="stylesheet" href="style.css?v=0.5.0">
+<script src="config.js?v=0.5.0"></script>
 </head>
 <body>
 
@@ -93,6 +93,9 @@
     <div class="actions">
       <button id="addBtn" class="primary crew-only">+ Tag</button>
       <button id="listBtn">List</button>
+      <button id="mailBtn" class="crew-only">Email</button>
+      <button id="printBtn">Print / PDF</button>
+      <button id="fwBtn" class="crew-only">Fieldwire</button>
       <button id="plansBtn" class="admin-only">Plans</button>
       <button id="projBtn" class="admin-only">Projects</button>
       <button id="roomsBtn" class="admin-only">Rooms &amp; QR</button>
@@ -198,6 +201,58 @@
   <div id="qOut"></div>
   <div class="btns"><button class="primary" id="qGo">Build labels</button><button id="qStrip" class="hidden">Download as one strip</button><span class="sp"></span><button data-close>Close</button></div>
 </div></div>
+<!-- Email -->
+<div class="modal hidden" id="mailModal"><div class="card">
+  <h3>Email punch list</h3>
+  <div class="grid">
+    <div class="full"><label>Items<select id="mScope" class="scopeSel"></select></label></div>
+    <div class="full"><label>To (comma separated)<input id="mTo" placeholder="sub@company.com" autocomplete="email"></label></div>
+    <div class="full"><label>Subject<input id="mSubject"></label></div>
+    <div class="full"><label>Message<textarea id="mNote" rows="3"></textarea></label></div>
+    <label class="chk"><input type="checkbox" id="mPlans" checked> Marked-up plans</label>
+    <label class="chk"><input type="checkbox" id="mPhotos" checked> Photos</label>
+  </div>
+  <div class="meta" id="mCount"></div>
+  <div class="btns"><button class="primary" id="mSend">Send</button><span class="sp"></span><button data-close>Cancel</button></div>
+</div></div>
+
+<!-- Print / PDF -->
+<div class="modal hidden" id="printModal"><div class="card">
+  <h3>Print / Save as PDF</h3>
+  <div class="grid">
+    <div class="full"><label>Items<select id="prScope" class="scopeSel"></select></label></div>
+    <div class="full"><label>Report title<input id="prTitle"></label></div>
+    <label class="chk"><input type="checkbox" id="prPlans" checked> Marked-up plans</label>
+    <label class="chk"><input type="checkbox" id="prPhotos" checked> Photos</label>
+  </div>
+  <div class="meta" id="prCount"></div>
+  <div class="meta">In the print window choose <b>Save as PDF</b> (or Microsoft Print to PDF) as the printer.</div>
+  <div class="btns"><button class="primary" id="prGo">Build &amp; print</button><span class="sp"></span><button data-close>Cancel</button></div>
+</div></div>
+
+<!-- Fieldwire -->
+<div class="modal hidden" id="fwModal"><div class="card">
+  <h3>Export to Fieldwire</h3>
+  <div class="grid">
+    <div class="full"><label>Items<select id="fwScope" class="scopeSel"></select></label></div>
+    <div><label>Fieldwire category<input id="fwCat" placeholder="Job site task"></label></div>
+    <div><label>Extra tag<input id="fwTag" placeholder="punch"></label></div>
+    <label class="chk full"><input type="checkbox" id="fwSkip" checked> Skip items already exported</label>
+    <label class="chk full"><input type="checkbox" id="fwMark" checked> Mark these as exported</label>
+  </div>
+  <div class="meta" id="fwCount"></div>
+  <div id="fwResult" class="hidden" style="margin-top:10px">
+    <div id="fwWarn" class="meta" style="color:var(--prog)"></div>
+    <textarea id="fwText" readonly rows="5" style="font-family:monospace;font-size:11px;white-space:pre"></textarea>
+    <ol class="meta" style="padding-left:18px">
+      <li>Tap <b>Copy rows</b>.</li>
+      <li>In Fieldwire: <b>Tasks → + Import Tasks → Task importer</b>.</li>
+      <li>Click the first cell under <b>Title</b> and paste. Fix any red cells, then import.</li>
+    </ol>
+  </div>
+  <div class="btns"><button class="primary" id="fwBuild">Build export</button><button id="fwCopy" class="hidden">Copy rows</button><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
+
 <div id="printArea"></div>
 <style id="pageStyle"></style>
 
@@ -236,6 +291,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.4.1"></script>
+<script type="module" src="app.js?v=0.5.0"></script>
 </body>
 </html>

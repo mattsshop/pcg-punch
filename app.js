@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.4.1';
+const VERSION = 'v0.5.0';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1149,4 +1149,199 @@ $('qStrip').onclick = async () => {
     if (IOS) { $('lightbox').querySelector('img').src = url; $('lightbox').classList.remove('hidden'); }
     else { const a = document.createElement('a'); a.href = url; a.download = `QR_labels_${k + 1}-${k + part.length}.png`; document.body.appendChild(a); a.click(); a.remove(); }
   }
+};
+
+// =====================================================================
+// Email, Print / PDF, Fieldwire (step 5)
+// =====================================================================
+const COLORS = { 'Open': '#d93025', 'In Progress': '#f29900', 'Ready for Review': '#1a73e8', 'Closed': '#188038' };
+const TRADE_TAGS = {
+  'General / Carpentry': '06_wood_and_plastics', 'Drywall': '09_finishes', 'Paint': '09_finishes', 'Flooring': '09_finishes',
+  'Tile': '09_finishes', 'Doors & Hardware': '08_openings', 'Millwork / Casework': '06_wood_and_plastics', 'Plumbing': '22_plumbing',
+  'HVAC / PTAC': '23_mechanical', 'Electrical': '26_electrical', 'Low Voltage / Data': '27_communications',
+  'Fire Sprinkler': '21-00_fire_suppression', 'Fire Alarm': '28_safety_&_security', 'Windows / Storefront': '08_openings',
+  'Roofing': '07_thermal_moisture', 'Exterior / Siding': '07_thermal_moisture', 'Concrete': '03_concrete',
+  'Sitework': '32_exterior_improvement', 'Signage': '10_specialties', 'FF&E': '12_furnishings', 'Elevator': '14_conveying_systems',
+  'Cleaning': '01_general_conditions'
+};
+
+// "Items" picker shared by the three windows
+function fillScope(sel) {
+  const cur = filtered();
+  const trades = TRADES.filter(t => S.items.some(i => i.trade === t && i.status !== 'Closed'));
+  sel.innerHTML = `<option value="filter">Current list / filters (${cur.length})</option>
+    <option value="allopen">All open items, all floors</option><option value="all">Everything, including closed</option>` +
+    trades.map(t => `<option value="trade:${esc(t)}">${esc(t)} – open items</option>`).join('');
+}
+function scopeItems(v) {
+  const items = v === 'filter' ? filtered() : v === 'allopen' ? S.items.filter(i => i.status !== 'Closed')
+    : v === 'all' ? S.items.slice() : S.items.filter(i => i.trade === v.slice(6) && i.status !== 'Closed');
+  return items.slice().sort((a, b) => a.floor - b.floor || (a.number || 1e9) - (b.number || 1e9));
+}
+const scopeLabel = v => v.startsWith('trade:') ? ' – ' + v.slice(6) : '';
+
+// Plan image with numbered dots, as a JPEG — for email. Needs the Storage CORS setting (see README); returns null without it.
+async function planSnapshot(floor, items) {
+  const f = S.floors.find(x => x.n === floor); if (!f || !f.planUrl) return null;
+  try {
+    const blob = await (await fetch(f.planUrl, { mode: 'cors' })).blob();
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(blob); });
+    const k = Math.min(1, 2400 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
+    const r = Math.max(12, Math.round(c.width / 140));
+    items.forEach(i => {
+      const px = i.x * c.width, py = i.y * c.height, t = String(i.number == null ? '…' : i.number);
+      x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fillStyle = COLORS[i.status] || COLORS.Open; x.fill();
+      x.lineWidth = Math.max(2, r / 5); x.strokeStyle = '#fff'; x.stroke();
+      x.fillStyle = '#fff'; x.font = `bold ${Math.round(r * (t.length > 2 ? 0.9 : 1.1))}px Arial`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(t, px, py + 1);
+    });
+    return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+  } catch (e) { return null; }
+}
+
+// ---- Email
+const tradeEmail = t => { try { return JSON.parse(store('pcg_tradeEmails') || '{}')[S.pid + '|' + t] || ''; } catch (e) { return ''; } };
+function rememberTradeEmail(t, to) {
+  try { const m = JSON.parse(store('pcg_tradeEmails') || '{}'); m[S.pid + '|' + t] = to; store('pcg_tradeEmails', JSON.stringify(m)); } catch (e) {}
+}
+function mailScopeChanged() {
+  const v = $('mScope').value, items = scopeItems(v);
+  $('mSubject').value = (project().name || '') + ' – Punch List' + scopeLabel(v);
+  if (v.startsWith('trade:') && tradeEmail(v.slice(6))) $('mTo').value = tradeEmail(v.slice(6));
+  $('mCount').textContent = `${items.length} item(s) on ${new Set(items.map(i => i.floor)).size} floor(s)`;
+}
+$('mailBtn').onclick = () => {
+  if (!(window.PCG_CONFIG || {}).MAILER_URL) { toast('Email is not connected yet — the mailer link goes in config.js (see README, step 5).', 8000); return; }
+  fillScope($('mScope')); $('mTo').value = ''; $('mNote').value = ''; mailScopeChanged();
+  $('mailModal').classList.remove('hidden');
+};
+$('mScope').onchange = mailScopeChanged;
+$('mSend').onclick = async () => {
+  const v = $('mScope').value, items = scopeItems(v), to = $('mTo').value.trim();
+  if (!items.length) { toast('No items to send'); return; }
+  if (!to) { toast('Enter an email address'); return; }
+  const btn = $('mSend'); btn.disabled = true; btn.textContent = 'Preparing…';
+  try {
+    const plans = [];
+    let noPlans = false;
+    if ($('mPlans').checked) for (const fl of [...new Set(items.map(i => i.floor))].sort((a, b) => a - b)) {
+      const data = await planSnapshot(fl, items.filter(i => i.floor === fl));
+      if (data) plans.push({ floor: fl, label: floorLabel(fl), data }); else noPlans = true;
+    }
+    btn.textContent = 'Sending…';
+    const body = {
+      idToken: await S.user.getIdToken(), to, subject: $('mSubject').value, note: $('mNote').value,
+      projectName: project().name || '', includePhotos: $('mPhotos').checked, plans,
+      items: items.map(i => ({ number: i.number, floor: i.floor, floorLabel: floorLabel(i.floor), room: i.room, trade: i.trade,
+        description: i.description, notes: i.notes, assignedTo: i.assignedTo, priority: i.priority, dueDate: i.dueDate, status: i.status,
+        photos: (i.photos || []).map(p => p.thumbUrl || p.url) }))
+    };
+    const resp = await fetch(window.PCG_CONFIG.MAILER_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const out = await resp.json().catch(() => ({ ok: false, error: 'The mailer sent an unexpected reply — check its deployment.' }));
+    if (!out.ok) throw new Error(out.error);
+    if (v.startsWith('trade:')) rememberTradeEmail(v.slice(6), to);
+    $('mailModal').classList.add('hidden');
+    toast(`Sent ${out.result.sent} item(s)` + (noPlans ? ' — plans left out (see README: plan images in email)' : ''), 7000);
+  } catch (e) { toast('Not sent: ' + (navigator.onLine === false ? 'no signal' : e.message), 8000); }
+  finally { btn.disabled = false; btn.textContent = 'Send'; }
+};
+
+// ---- Print / PDF (works without any setup: plans are shown as images with numbered dots on top)
+function prScopeChanged() {
+  const v = $('prScope').value, items = scopeItems(v);
+  $('prTitle').value = (project().name || '') + ' – Punch List' + scopeLabel(v);
+  $('prCount').textContent = `${items.length} item(s), ${items.reduce((n, i) => n + (i.photos || []).length, 0)} photo(s)`;
+}
+$('printBtn').onclick = () => { fillScope($('prScope')); prScopeChanged(); $('printModal').classList.remove('hidden'); };
+$('prScope').onchange = prScopeChanged;
+$('prGo').onclick = async () => {
+  const items = scopeItems($('prScope').value);
+  if (!items.length) { toast('No items to print'); return; }
+  const btn = $('prGo'); btn.disabled = true; btn.textContent = 'Preparing…';
+  try {
+    const withPlans = $('prPlans').checked, withPhotos = $('prPhotos').checked, now = new Date();
+    const statuses = ['Open', 'In Progress', 'Ready for Review', 'Closed'];
+    const floors = [...new Set(items.map(i => i.floor))].sort((a, b) => a - b);
+    const dot = s => `<span class="pr-dot" style="background:${COLORS[s] || COLORS.Open}"></span>`;
+    let html = `<div class="pr-head"><h1>${esc($('prTitle').value)}</h1><div>${now.toLocaleDateString()} · ${items.length} item(s) · prepared by ${esc(S.me.name || '')} · Perimeter Construction Group</div></div>`;
+    html += '<table class="pr-sum"><tr><th>Floor</th>' + statuses.map(s => `<th>${dot(s)}${s}</th>`).join('') + '<th>Total</th></tr>' +
+      floors.map(f => { const fi = items.filter(i => i.floor === f); return `<tr><td>${esc(floorLabel(f))}</td>` + statuses.map(s => `<td>${fi.filter(i => i.status === s).length || ''}</td>`).join('') + `<td><b>${fi.length}</b></td></tr>`; }).join('') +
+      `<tr><td><b>Total</b></td>` + statuses.map(s => `<td><b>${items.filter(i => i.status === s).length || ''}</b></td>`).join('') + `<td><b>${items.length}</b></td></tr></table>`;
+    floors.forEach(f => {
+      const fi = items.filter(i => i.floor === f), fl = S.floors.find(x => x.n === f) || {};
+      html += `<div class="pr-floor"><h2>${esc(floorLabel(f))} — ${fi.length} item(s)</h2>`;
+      const plan = withPlans && fl.planUrl;
+      if (plan) html += `<div class="pr-planbox"><img src="${esc(fl.planUrl)}" alt="">` + fi.map(i =>
+        `<div class="pr-pin" style="left:${i.x * 100}%;top:${i.y * 100}%;background:${COLORS[i.status] || COLORS.Open}">${esc(i.number == null ? '…' : i.number)}</div>`).join('') + '</div>';
+      html += `<table class="pr-tbl${plan ? ' brk' : ''}"><tr><th>#</th><th>Room</th><th>Trade</th><th>Description</th><th>Assigned</th><th>Priority</th><th>Due</th><th>Status</th>${withPhotos ? '<th>Photos</th>' : ''}</tr>` +
+        fi.map(i => `<tr><td><b>${esc(i.number == null ? '…' : i.number)}</b></td><td>${esc(i.room)}</td><td>${esc(i.trade)}</td>
+          <td>${esc(i.description)}${i.notes ? '<br><i>' + esc(i.notes) + '</i>' : ''}</td><td>${esc(i.assignedTo)}</td><td>${esc(i.priority)}</td><td>${esc(i.dueDate)}</td>
+          <td>${dot(i.status)}${esc(i.status)}</td>${withPhotos ? '<td>' + (i.photos || []).map(p => `<img class="pr-ph" src="${esc(p.thumbUrl || p.url)}" alt="">`).join('') + '</td>' : ''}</tr>`).join('') + '</table></div>';
+    });
+    html += `<div class="pr-foot">Generated ${now.toLocaleString()} · PCG Punch ${VERSION}</div>`;
+    const area = $('printArea'); area.className = 'report'; area.innerHTML = html;
+    btn.textContent = 'Loading images…';
+    await Promise.all([...area.querySelectorAll('img')].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; setTimeout(r, 20000); })));
+    $('printModal').classList.add('hidden');
+    $('pageStyle').textContent = '@media print{@page{size:letter landscape;margin:.4in}}';
+    setTimeout(() => window.print(), 150);
+  } catch (e) { toast('Error: ' + e.message, 6000); }
+  finally { btn.disabled = false; btn.textContent = 'Build & print'; }
+};
+addEventListener('afterprint', () => { $('printArea').className = ''; });
+
+// ---- Fieldwire (paste into Tasks → + Import Tasks → Task importer)
+const FW_STATUS = { 'Open': 'Sent', 'In Progress': 'Sent', 'Ready for Review': 'Completed', 'Closed': 'Verified' };
+function fwItems() {
+  let items = scopeItems($('fwScope').value);
+  if ($('fwSkip').checked) items = items.filter(i => !i.fieldwireAt);
+  return items;
+}
+function fwCount() { const n = fwItems().length; $('fwCount').textContent = n + ' item(s) will be exported' + (n > 500 ? ' — Fieldwire takes 500 per import' : ''); }
+$('fwBtn').onclick = () => {
+  fillScope($('fwScope')); $('fwScope').value = 'allopen';
+  const st = settings(); $('fwCat').value = st.fwCategory || 'Job site task'; $('fwTag').value = st.fwTag == null ? 'punch' : st.fwTag;
+  $('fwResult').classList.add('hidden'); $('fwCopy').classList.add('hidden');
+  fwCount(); $('fwModal').classList.remove('hidden');
+};
+['fwScope', 'fwSkip'].forEach(id => $(id).addEventListener('change', fwCount));
+$('fwBuild').onclick = () => {
+  const items = fwItems();
+  if (!items.length) { toast('Nothing to export'); return; }
+  if (items.length > 500) { toast('Fieldwire imports up to 500 at a time — narrow the list (by trade or floor).', 7000); return; }
+  const cat = $('fwCat').value.trim() || 'Job site task', tag = $('fwTag').value.trim();
+  const clean = s => String(s == null ? '' : s).replace(/[\t\r\n]+/g, ' ').trim();
+  const isEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
+  const day = t => { if (!t) return ''; const d = t.toDate ? t.toDate() : new Date(t); return isNaN(d) ? '' : d.toISOString().slice(0, 10); };
+  const noPlan = new Set();
+  const rows = items.map(i => {
+    const fl = S.floors.find(x => x.n === i.floor) || {}, plan = fl.fwPlan || '';
+    if (!plan) noPlan.add(fl.label || 'Level ' + i.floor);
+    let title = clean(`PL-${i.number == null ? '?' : i.number} ${i.room ? i.room + ' - ' : ''}${i.trade ? i.trade + ': ' : ''}${i.description}`);
+    if (title.length > 120) title = title.slice(0, 117) + '...';
+    const desc = [clean(i.description)];
+    if (i.notes) desc.push('Notes: ' + clean(i.notes));
+    if (i.assignedTo && !isEmail(i.assignedTo)) desc.push('Assigned to: ' + clean(i.assignedTo));
+    desc.push('Priority: ' + (i.priority || 'Medium'));
+    if ((i.photos || []).length) desc.push('Photos: ' + i.photos.map(p => p.url).join(' '));
+    desc.push(`Punch #${i.number == null ? '?' : i.number} (${floorLabel(i.floor)})`);
+    const tags = [tag, TRADE_TAGS[i.trade], 'level_' + i.floor].filter(Boolean).map(t => '#' + t);
+    return [title, FW_STATUS[i.status] || 'Sent', cat, isEmail(i.assignedTo) ? i.assignedTo.trim() : '', day(i.createdAt), i.dueDate || '',
+      plan, plan ? Math.round(i.x * 1000) / 10 : '', plan ? Math.round(i.y * 1000) / 10 : '', '', '', '', '', '', '', '',
+      desc.join(' | ') + ' ' + tags.join(', '), '', '', '', '', ''].map(String);
+  });
+  $('fwText').value = rows.map(r => r.join('\t')).join('\n');
+  $('fwWarn').textContent = noPlan.size ? `No Fieldwire plan name for ${[...noPlan].join(', ')} (Plans window) — those import without pins.` : '';
+  $('fwResult').classList.remove('hidden'); $('fwCopy').classList.remove('hidden');
+  $('fwCount').textContent = rows.length + ' row(s) ready';
+  if ($('fwMark').checked) items.forEach(i => F.updateDoc(F.doc(db, 'projects', S.pid, 'items', i.id), { fieldwireAt: F.serverTimestamp() }).catch(() => {}));
+  if (S.me.role === 'Admin' && (cat !== (settings().fwCategory || 'Job site task') || tag !== (settings().fwTag == null ? 'punch' : settings().fwTag)))
+    F.updateDoc(F.doc(db, 'projects', S.pid), { settings: Object.assign(settings(), { fwCategory: cat, fwTag: tag }) }).catch(() => {});
+};
+$('fwCopy').onclick = async () => {
+  const ta = $('fwText');
+  try { await navigator.clipboard.writeText(ta.value); toast('Copied — paste into the Fieldwire Task importer'); return; } catch (e) {}
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); toast('Copied — paste into the Fieldwire Task importer'); } catch (e) { toast('Select the text box and copy it'); }
 };

@@ -1,5 +1,11 @@
 # PCG Punch changelog
 
+## v0.5.0 (2026-11-07) Step 5 — email, print, Fieldwire
+- **Email** (Crew and Admin): send the current list, all open items, everything, or one trade's open items. Shows as "Your name (company) via PCG Punch"; replies go to you and you get a copy. Includes photos (up to 150) and, with the one-time Storage setting in the README, marked-up plans. Each trade's email address is remembered on that device.
+- Emails go through a small Apps Script (`apps-script/Mailer.gs`) that checks the sender is signed in and approved, and can send from a Gmail "Send mail as" alias.
+- **Print / PDF:** summary by floor and status, each floor's plan with colored numbered dots, item table with photos. Letter landscape; choose "Save as PDF".
+- **Fieldwire:** builds rows in the Task Importer's column order (title, status, category, plan + pin position, description with notes, sub, priority, photo links and CSI tags). Copy and paste into Fieldwire. Skips items already exported and marks the new ones. Plan names come from the Plans window.
+
 ## v0.4.1 (2026-11-07)
 - Fix: **Print QR labels** could stay stuck on "Building…" while it waited for the server to confirm the room pages. Labels now build right away; room pages save in the background.
 

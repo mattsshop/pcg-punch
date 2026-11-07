@@ -24,7 +24,7 @@ until the switch. The screens, plans, QR labels, Fieldwire export and PDF report
 | 2 | Sign-in, access requests and approvals, projects, floor plan upload, plan viewer | done (v0.2) |
 | 3 | Tags on plans, item details, photos, live updates, offline saving, item numbers | done (v0.3) |
 | 4 | Rooms, QR labels, public read-only room pages, scan log | done (v0.4) |
-| 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | |
+| 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | done (v0.5) |
 | 6 | Move WoodSpring Cartersville items and photos over from the Sheet and Drive; switch | |
 
 ## Step 1 — Firebase setup (Firebase console, about 15 minutes)
@@ -48,6 +48,33 @@ Use a **new Firebase project** for this, so the rules here don't affect the earl
 The owner account in both rules files is `matt@mattsshop.com`. If you sign in with a different
 Google account, change it in both files before publishing.
 
+## Step 5 — email setup (Apps Script, about 5 minutes)
+
+Firebase can't send email, so a small Apps Script does it from your Google account.
+It only sends for people signed in to PCG Punch as approved Crew or Admin.
+
+1. Go to [script.google.com](https://script.google.com) signed in with the Google account the emails should come from
+   → **New project** → name it **PCG Punch Mailer**.
+2. Paste the whole of `apps-script/Mailer.gs` over `Code.gs` → **Save**.
+   Optional: set `FROM_ALIAS` to a Gmail "Send mail as" address, and `DISPLAY_NAME`.
+3. **Deploy → New deployment →** gear → **Web app**. *Execute as:* **Me**. *Who has access:* **Anyone** → **Deploy** →
+   **Authorize access** → choose your account → **Allow**.
+4. Copy the **Web app URL** (ends in `/exec`) into `config.js` as `MAILER_URL`, and commit.
+   To update the mailer later: paste the new code, Save, then **Manage deployments → ✏️ → New version** (same link).
+
+### Plan images in emails (optional, one command)
+
+Print / PDF shows marked-up plans with no setup. To also put marked-up plans **inside emails**, Storage has to let the
+app read plan images. In the [Google Cloud console](https://console.cloud.google.com/) pick project **pcg-punch**,
+open **Cloud Shell** (the `>_` icon, top right) and paste:
+
+```
+printf '[{"origin":["https://mattsshop.github.io"],"method":["GET"],"maxAgeSeconds":3600}]' > cors.json
+gcloud storage buckets update gs://pcg-punch.firebasestorage.app --cors-file=cors.json
+```
+
+Without it, emails still go out with the item list and photos — only the plan pictures are left out.
+
 ## Files
 
 | File | What it is |
@@ -60,6 +87,7 @@ Google account, change it in both files before publishing.
 | `seeds.js` | Room lists read off hotel plans (WoodSpring Cartersville) |
 | `sw.js`, `manifest.webmanifest`, icons | Home-screen install and opening with no signal |
 | `config.js` | Firebase project values — **edit this** |
+| `apps-script/Mailer.gs` | Small Apps Script that sends the emails (see step 5 setup) |
 | `firebase/firestore.rules` | Who can read and change which data |
 | `firebase/storage.rules` | Who can read and upload plans and photos |
 | `CHANGELOG.md` | What changed in each version |
