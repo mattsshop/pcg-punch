@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.5.9 (2026-11-08)
+- Mailer sends from **punchlist@perimeterconstructiongroup.com** (Gmail "Send mail as" alias). Opening the mailer link shows which address it sends from, or why the alias isn't being used.
+- After sending, the app's message shows the From address. **Redeploy the mailer** and allow the new Gmail permission.
+
 ## v0.5.8 (2026-11-08)
 - **Plans in emails without the Cloud Shell step.** If the browser can't read the plan image, the app gets it through the mailer instead, then draws the numbered dots as before. **Redeploy the mailer** (v0.5.8).
 - If plans are still left out, the message after sending says why.

@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.8';
+const VERSION = 'v0.5.9';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1345,8 +1345,9 @@ $('mSend').onclick = async () => {
     const inApp = body.items.reduce((n, i) => n + i.photos.length, 0);
     const waiting = items.reduce((n, i) => n + (S.queued[i.id] || []).length, 0);
     if (body.includePhotos) notes.push(`${r.photos != null ? r.photos : '?'} of ${inApp} photo(s)` + (r.mailer ? '' : ' (old mailer — redeploy it)'));
+    if (r.from) notes.push('from ' + r.from + (r.aliasMissing ? ' (alias not set up in Gmail)' : ''));
     if (waiting) notes.push(`${waiting} photo(s) not uploaded yet, left out`);
-    if (noPlans) notes.push('plans left out' + (S.planErr ? ' (' + S.planErr + ')' : '') + (r.mailer === 'v0.5.8' ? '' : ' — redeploy the mailer'));
+    if (noPlans) notes.push('plans left out' + (S.planErr ? ' (' + S.planErr + ')' : '') + (r.mailer ? '' : ' — redeploy the mailer'));
     toast(`Sent ${r.sent} item(s)` + (notes.length ? ' — ' + notes.join(' · ') : ''), 10000);
   } catch (e) { toast('Not sent: ' + (navigator.onLine === false ? 'no signal' : e.message), 8000); }
   finally { btn.disabled = false; btn.textContent = 'Send'; }
