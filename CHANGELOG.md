@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.5.7 (2026-11-07)
+- More in **Details for support**: the signed-in account's ID and sign-in method, how many projects a direct check finds, and what the app's database library answers when asked to go to the server.
+
 ## v0.5.6 (2026-11-07)
 - "Can't reach the database" screen has a **Details for support** section: device and browser, mode, the result of a direct database check, and the app's recent warnings and errors.
 

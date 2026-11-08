@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.6';
+const VERSION = 'v0.5.7';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -207,7 +207,17 @@ async function noServer() {
       const r = await fetch(`https://firestore.googleapis.com/v1/projects/${window.PCG_CONFIG.firebase.projectId}/databases/(default)/documents/users/${S.user.uid}`,
         { headers: { Authorization: 'Bearer ' + t } });
       why = r.ok || r.status === 404 ? 'reachable' : 'The database answered ' + r.status + '.';
-      S.restCheck = 'direct check: ' + r.status;
+      S.restCheck = 'direct check (my user record): ' + r.status + (r.status === 404 ? ' = not found' : '');
+      const r2 = await fetch(`https://firestore.googleapis.com/v1/projects/${window.PCG_CONFIG.firebase.projectId}/databases/(default)/documents/projects?pageSize=50`,
+        { headers: { Authorization: 'Bearer ' + t } });
+      const j = await r2.json().catch(() => ({}));
+      S.restCheck += '\ndirect check (projects): ' + r2.status + ', ' + ((j.documents || []).length) + ' found';
+      // what the app's own database library says when asked to go to the server
+      const probe = await Promise.race([
+        F.getDocFromServer(F.doc(db, 'users', S.user.uid)).then(d => 'answered, record ' + (d.exists() ? 'found' : 'not found')),
+        new Promise(r => setTimeout(() => r('no answer in 8 s'), 8000))
+      ]).catch(e => 'error ' + (e.code || '') + ' ' + (e.message || e));
+      S.restCheck += '\nlibrary check: ' + probe;
     } catch (e) { why = 'The database could not be reached (' + (e.message || e) + ').'; }
   }
   if (S.serverOk) return;
@@ -238,7 +248,7 @@ function noProjects() {
     ? `<div>Can't reach the PCG Punch database from this device.</div><div style="font-size:13px;margin-top:6px">${esc(S.noServer || 'Still waiting for an answer.')}</div>
        <div style="font-size:13px;margin-top:6px">Check the signal, and turn off content blockers or VPN / ad-blocking apps for this site.</div>
        <details style="margin-top:10px;font-size:12px;text-align:left;max-width:520px"><summary>Details for support</summary><pre style="white-space:pre-wrap;word-break:break-word">${esc([
-         ver, navigator.userAgent, 'online: ' + navigator.onLine, S.restCheck || '', 'indexedDB: ' + (typeof indexedDB), ...LOG].join('\n'))}</pre></details>
+         ver, navigator.userAgent, 'account: ' + S.user.uid + ' via ' + S.user.providerData.map(p => p.providerId).join(', '), 'online: ' + navigator.onLine, S.restCheck || '', 'indexedDB: ' + (typeof indexedDB), ...LOG].join('\n'))}</pre></details>
        <div style="margin-top:10px"><button class="primary" id="dbRetry">Try again</button> <button id="dbMode">${FS_SAFE ? 'Turn off compatibility mode' : 'Try compatibility mode'}</button></div>` + who
     : role === 'Admin'
     ? '<div>No projects yet.</div><button class="primary" id="firstProj">Create your first project</button>' + who
