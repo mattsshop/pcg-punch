@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.5';
+const VERSION = 'v0.5.6';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -13,6 +13,13 @@ const SITE_URL = location.origin + location.pathname.replace(/index\.html$/, '')
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Recent warnings and errors, shown on the "can't reach the database" screen so a screenshot says what went wrong.
+const LOG = [];
+['warn', 'error'].forEach(k => { const o = console[k].bind(console); console[k] = (...a) => {
+  try { LOG.push(new Date().toTimeString().slice(0, 8) + ' ' + a.map(x => x && x.message ? x.message : typeof x === 'string' ? x : JSON.stringify(x)).join(' ').slice(0, 300)); if (LOG.length > 12) LOG.shift(); } catch (e) {}
+  o(...a); }; });
+addEventListener('error', e => LOG.push('error ' + (e.message || '')));
+addEventListener('unhandledrejection', e => LOG.push('rejected ' + ((e.reason && (e.reason.code || e.reason.message)) || e.reason)));
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
 function toast(msg, ms = 2800) {
   const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
@@ -200,9 +207,11 @@ async function noServer() {
       const r = await fetch(`https://firestore.googleapis.com/v1/projects/${window.PCG_CONFIG.firebase.projectId}/databases/(default)/documents/users/${S.user.uid}`,
         { headers: { Authorization: 'Bearer ' + t } });
       why = r.ok || r.status === 404 ? 'reachable' : 'The database answered ' + r.status + '.';
+      S.restCheck = 'direct check: ' + r.status;
     } catch (e) { why = 'The database could not be reached (' + (e.message || e) + ').'; }
   }
   if (S.serverOk) return;
+  if (!S.restCheck) S.restCheck = 'direct check: ' + why;
   let tried = false; try { tried = sessionStorage.getItem('pcg_fs_tried') === '1'; } catch (e) {}
   if (why === 'reachable' && !FS_SAFE && !tried) { // network is fine but the live connection isn't: retry in compatibility mode
     try { sessionStorage.setItem('pcg_fs_tried', '1'); } catch (e) {}
@@ -228,6 +237,8 @@ function noProjects() {
   $('planMsg').innerHTML = !S.serverOk
     ? `<div>Can't reach the PCG Punch database from this device.</div><div style="font-size:13px;margin-top:6px">${esc(S.noServer || 'Still waiting for an answer.')}</div>
        <div style="font-size:13px;margin-top:6px">Check the signal, and turn off content blockers or VPN / ad-blocking apps for this site.</div>
+       <details style="margin-top:10px;font-size:12px;text-align:left;max-width:520px"><summary>Details for support</summary><pre style="white-space:pre-wrap;word-break:break-word">${esc([
+         ver, navigator.userAgent, 'online: ' + navigator.onLine, S.restCheck || '', 'indexedDB: ' + (typeof indexedDB), ...LOG].join('\n'))}</pre></details>
        <div style="margin-top:10px"><button class="primary" id="dbRetry">Try again</button> <button id="dbMode">${FS_SAFE ? 'Turn off compatibility mode' : 'Try compatibility mode'}</button></div>` + who
     : role === 'Admin'
     ? '<div>No projects yet.</div><button class="primary" id="firstProj">Create your first project</button>' + who
