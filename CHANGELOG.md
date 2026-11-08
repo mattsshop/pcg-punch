@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.5.5 (2026-11-07)
+- **Compatibility mode** for devices (some iPads and iPhones) where the app signs in but never gets data. If the database hasn't answered 12 seconds after sign-in but the network can reach it, the app switches that device to compatibility mode by itself and reloads. The version label then reads "(compatibility mode)". In this mode, items added with no signal are kept until the app is closed (photos still wait on the device as before).
+- If the database still can't be reached, the screen says why (offline, blocked, or the error code), with **Try again** and a button to turn compatibility mode on or off.
+
 ## v0.5.4 (2026-11-07)
 - On a new phone or tablet, the app shows "Loading projects…" until it has heard from the database, instead of "No projects yet" with a Create button (which could make a duplicate project).
 - If the database can't be reached after about 12 seconds, it says so and suggests what to check (signal, content blockers, iCloud Private Relay).

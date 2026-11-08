@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.4';
+const VERSION = 'v0.5.5';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -28,10 +28,15 @@ const S = {
 // ---------- Firebase ----------
 const app = F.initializeApp(window.PCG_CONFIG.firebase);
 const auth = F.getAuth(app);
-const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+// Compatibility mode (per device): some iPads/iPhones can't use Firestore's saved-on-device database or its live
+// connection. There the app keeps data in memory and uses plain requests instead. Turned on automatically when needed.
+const FS_SAFE = store('pcg_fs_safe') === '1';
+const db = FS_SAFE
+  ? F.initializeFirestore(app, { localCache: F.memoryLocalCache(), experimentalForceLongPolling: true })
+  : F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
 const storage = F.getStorage(app);
 
-const ver = VERSION;
+const ver = VERSION + (FS_SAFE ? ' (compatibility mode)' : '');
 ['verSignin'].forEach(id => $(id).textContent = 'PCG Punch ' + ver);
 $('ver').textContent = ver;
 
@@ -114,8 +119,11 @@ function route(u) {
   if (pw && !u.emailVerified) { $('vEmail').textContent = u.email; show('scrVerify'); return; }
   S.isOwner = String(u.email || '').toLowerCase() === OWNER && u.emailVerified;
   const meRef = F.doc(db, 'users', u.uid);
+  clearTimeout(S.dbTimer); S.noServer = '';
+  if (!S.serverOk) S.dbTimer = setTimeout(noServer, 12000);
   S.unsub.me = F.onSnapshot(meRef, { includeMetadataChanges: true }, async snap => {
     const d = snap.exists() ? snap.data() : null;
+    if (!snap.metadata.fromCache) serverSeen();
     if (!d && snap.metadata.fromCache) { showLoading(); return; } // new device: wait for the server before deciding
     if (!d && S.isOwner) {
       await F.setDoc(meRef, { name: u.displayName || 'Matt Holtzclaw', email: u.email, company: 'Perimeter Construction Group',
@@ -157,12 +165,10 @@ function enterApp() {
   if (ROOM_CODE && !S.scanHandled) openScan();
   fillTrades(); processPhotoQueue(); loadQueuedThumbs(); updateNet();
   F.updateDoc(F.doc(db, 'users', S.user.uid), { lastSeen: F.serverTimestamp() }).catch(() => {});
-  clearTimeout(S.projTimer); S.projServer = false;
-  S.projTimer = setTimeout(() => { if (!S.projServer && !S.projects.length) noProjects(); }, 12000);
   S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), { includeMetadataChanges: true }, snap => {
-    if (!snap.metadata.fromCache) S.projServer = true;
+    if (!snap.metadata.fromCache) serverSeen();
     S.projects = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    if (!S.projects.length && !S.projServer) { renderProjects(); showProjLoading(); return; } // this device has nothing saved yet
+    if (!S.projects.length && !S.serverOk) { renderProjects(); showProjLoading(); return; } // this device has nothing saved yet
     renderProjects();
     const want = S.projects.find(p => p.id === S.pid) ? S.pid : (S.projects.find(p => p.id === store('pcg_pid')) || S.projects[0] || {}).id;
     if (want !== S.pid) selectProject(want);
@@ -179,7 +185,34 @@ function renderProjects() {
 }
 $('projSel').onchange = () => selectProject($('projSel').value);
 
+function serverSeen() {
+  S.serverOk = true; clearTimeout(S.dbTimer);
+  if (S.noServer) { S.noServer = ''; if (!S.projects.length) noProjects(); }
+}
+// No answer from the database 12 s after sign-in: find out why, and switch this device to compatibility mode if that should help.
+async function noServer() {
+  if (S.serverOk || !S.user) return;
+  let why;
+  if (navigator.onLine === false) why = 'This device is offline.';
+  else {
+    try {
+      const t = await S.user.getIdToken();
+      const r = await fetch(`https://firestore.googleapis.com/v1/projects/${window.PCG_CONFIG.firebase.projectId}/databases/(default)/documents/users/${S.user.uid}`,
+        { headers: { Authorization: 'Bearer ' + t } });
+      why = r.ok || r.status === 404 ? 'reachable' : 'The database answered ' + r.status + '.';
+    } catch (e) { why = 'The database could not be reached (' + (e.message || e) + ').'; }
+  }
+  if (S.serverOk) return;
+  let tried = false; try { tried = sessionStorage.getItem('pcg_fs_tried') === '1'; } catch (e) {}
+  if (why === 'reachable' && !FS_SAFE && !tried) { // network is fine but the live connection isn't: retry in compatibility mode
+    try { sessionStorage.setItem('pcg_fs_tried', '1'); } catch (e) {}
+    store('pcg_fs_safe', '1'); location.reload(); return;
+  }
+  S.noServer = why === 'reachable' ? 'The network can reach the database, but the app\'s connection to it isn\'t working.' : why;
+  show('scrApp'); noProjects();
+}
 function showProjLoading() {
+  if (S.noServer) { noProjects(); return; }
   $('plan').style.display = 'none'; $('planMsg').classList.remove('hidden');
   $('planMsg').innerHTML = '<div>Loading projects…</div>';
 }
@@ -191,12 +224,17 @@ function noProjects() {
   $('plan').style.display = 'none';
   $('planMsg').classList.remove('hidden');
   const who = `<div style="color:#5f6368;font-size:13px;margin-top:8px">Signed in as ${esc(S.user.email || '')}</div>`;
-  $('planMsg').innerHTML = !S.projServer
-    ? '<div>Can\'t reach the PCG Punch database from this device.</div><div style="font-size:13px;margin-top:6px">Check the signal. On an iPhone or iPad, try turning off content blockers or iCloud Private Relay for this site, then reload.</div>' + who
-    : S.me.role === 'Admin'
+  const role = (S.me || {}).role;
+  $('planMsg').innerHTML = !S.serverOk
+    ? `<div>Can't reach the PCG Punch database from this device.</div><div style="font-size:13px;margin-top:6px">${esc(S.noServer || 'Still waiting for an answer.')}</div>
+       <div style="font-size:13px;margin-top:6px">Check the signal, and turn off content blockers or VPN / ad-blocking apps for this site.</div>
+       <div style="margin-top:10px"><button class="primary" id="dbRetry">Try again</button> <button id="dbMode">${FS_SAFE ? 'Turn off compatibility mode' : 'Try compatibility mode'}</button></div>` + who
+    : role === 'Admin'
     ? '<div>No projects yet.</div><button class="primary" id="firstProj">Create your first project</button>' + who
     : '<div>No projects yet. Check back once the project manager sets one up.</div>' + who;
   const b = $('firstProj'); if (b) b.onclick = openProjects;
+  if ($('dbRetry')) $('dbRetry').onclick = () => location.reload();
+  if ($('dbMode')) $('dbMode').onclick = () => { store('pcg_fs_safe', FS_SAFE ? '0' : '1'); location.reload(); };
 }
 
 function selectProject(pid) {
