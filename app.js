@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.7';
+const VERSION = 'v0.5.8';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1275,7 +1275,15 @@ const scopeLabel = v => v.startsWith('trade:') ? ' – ' + v.slice(6) : '';
 async function planSnapshot(floor, items) {
   const f = S.floors.find(x => x.n === floor); if (!f || !f.planUrl) return null;
   try {
-    const blob = await (await fetch(f.planUrl, { mode: 'cors' })).blob();
+    let blob = null;
+    try { const r = await fetch(f.planUrl, { mode: 'cors' }); if (r.ok) blob = await r.blob(); } catch (e) { /* Storage has no CORS setting */ }
+    if (!blob) { // ask the mailer to fetch the plan for us (works without the Storage CORS setting)
+      const resp = await fetch(window.PCG_CONFIG.MAILER_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'plan', idToken: await S.user.getIdToken(), url: f.planUrl }) });
+      const out = await resp.json();
+      if (!out.ok || !out.result || !out.result.data) throw new Error(out.error || 'no plan');
+      blob = await (await fetch('data:' + out.result.type + ';base64,' + out.result.data)).blob();
+    }
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(blob); });
     const k = Math.min(1, 2400 / Math.max(img.width, img.height));
     const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
@@ -1288,7 +1296,7 @@ async function planSnapshot(floor, items) {
       x.fillStyle = '#fff'; x.font = `bold ${Math.round(r * (t.length > 2 ? 0.9 : 1.1))}px Arial`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(t, px, py + 1);
     });
     return c.toDataURL('image/jpeg', 0.85).split(',')[1];
-  } catch (e) { return null; }
+  } catch (e) { console.warn('Plan for email', e); S.planErr = e.message || String(e); return null; }
 }
 
 // ---- Email
@@ -1312,7 +1320,7 @@ $('mSend').onclick = async () => {
   const v = $('mScope').value, items = scopeItems(v), to = $('mTo').value.trim();
   if (!items.length) { toast('No items to send'); return; }
   if (!to) { toast('Enter an email address'); return; }
-  const btn = $('mSend'); btn.disabled = true; btn.textContent = 'Preparing…';
+  const btn = $('mSend'); btn.disabled = true; btn.textContent = 'Preparing…'; S.planErr = '';
   try {
     const plans = [];
     let noPlans = false;
@@ -1338,7 +1346,7 @@ $('mSend').onclick = async () => {
     const waiting = items.reduce((n, i) => n + (S.queued[i.id] || []).length, 0);
     if (body.includePhotos) notes.push(`${r.photos != null ? r.photos : '?'} of ${inApp} photo(s)` + (r.mailer ? '' : ' (old mailer — redeploy it)'));
     if (waiting) notes.push(`${waiting} photo(s) not uploaded yet, left out`);
-    if (noPlans) notes.push('plans left out (see README: plan images in email)');
+    if (noPlans) notes.push('plans left out' + (S.planErr ? ' (' + S.planErr + ')' : '') + (r.mailer === 'v0.5.8' ? '' : ' — redeploy the mailer'));
     toast(`Sent ${r.sent} item(s)` + (notes.length ? ' — ' + notes.join(' · ') : ''), 10000);
   } catch (e) { toast('Not sent: ' + (navigator.onLine === false ? 'no signal' : e.message), 8000); }
   finally { btn.disabled = false; btn.textContent = 'Send'; }

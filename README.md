@@ -62,7 +62,7 @@ It only sends for people signed in to PCG Punch as approved Crew or Admin.
 4. Copy the **Web app URL** (ends in `/exec`) into `config.js` as `MAILER_URL`, and commit.
    To update the mailer later: paste the new code, Save, then **Manage deployments → ✏️ → New version** (same link).
 
-### Plan images in emails (optional, one command)
+### Plan images in emails (optional since v0.5.8)
 
 Print / PDF shows marked-up plans with no setup. To also put marked-up plans **inside emails**, Storage has to let the
 app read plan images. In the [Google Cloud console](https://console.cloud.google.com/) pick project **pcg-punch**,
@@ -73,7 +73,7 @@ printf '[{"origin":["https://mattsshop.github.io"],"method":["GET"],"maxAgeSecon
 gcloud storage buckets update gs://pcg-punch.firebasestorage.app --cors-file=cors.json
 ```
 
-Without it, emails still go out with the item list and photos — only the plan pictures are left out.
+Since v0.5.8 this isn't needed: without it, the app fetches the plan through the mailer instead. It only makes emails a little faster to prepare.
 
 ## Files
 

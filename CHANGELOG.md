@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.5.8 (2026-11-08)
+- **Plans in emails without the Cloud Shell step.** If the browser can't read the plan image, the app gets it through the mailer instead, then draws the numbered dots as before. **Redeploy the mailer** (v0.5.8).
+- If plans are still left out, the message after sending says why.
+
 ## v0.5.7 (2026-11-07)
 - More in **Details for support**: the signed-in account's ID and sign-in method, how many projects a direct check finds, and what the app's database library answers when asked to go to the server.
 

@@ -1,5 +1,5 @@
 /**
- * PCG Punch — email sender (v0.5.2)
+ * PCG Punch — email sender (v0.5.8)
  *
  * The PCG Punch app (GitHub Pages + Firebase) asks this script to send punch-list emails,
  * because Firebase can't send email itself. It only sends for people who are signed in to
@@ -25,13 +25,16 @@ const MAX_PHOTOS = 150;
 const COMPANY = 'Perimeter Construction Group';
 
 function doGet() {
-  return ContentService.createTextOutput('PCG Punch mailer v0.5.2 is running. Daily emails left: ' + MailApp.getRemainingDailyQuota());
+  return ContentService.createTextOutput('PCG Punch mailer v0.5.8 is running. Daily emails left: ' + MailApp.getRemainingDailyQuota());
 }
 
 /** Body (text/plain JSON): { idToken, to, subject, note, projectName, items: [...], plans: [{floor, label, data}], includePhotos } */
 function doPost(e) {
   let out;
-  try { out = { ok: true, result: send_(JSON.parse((e && e.postData && e.postData.contents) || '{}')) }; }
+  try {
+    const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    out = { ok: true, result: p.action === 'plan' ? plan_(p) : send_(p) };
+  }
   catch (err) { out = { ok: false, error: String((err && err.message) || err) }; }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -62,6 +65,18 @@ const esc_ = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&a
 // Only fetch photos from this project's Firebase Storage
 const PHOTO_HOST = 'https://firebasestorage.googleapis.com/v0/b/';
 const isPhotoUrl_ = u => { u = String(u || ''); return u.indexOf(PHOTO_HOST) === 0 && u.slice(PHOTO_HOST.length).split('/')[0].indexOf(FIREBASE_PROJECT) === 0; };
+
+/** Hands a plan image from this project's Storage to the app, so it can draw the numbered dots for the email
+ *  (the browser itself isn't allowed to read Storage images unless the bucket has a CORS setting). */
+function plan_(p) {
+  sender_(p.idToken);
+  if (!isPhotoUrl_(p.url)) throw new Error('Not a PCG Punch plan.');
+  const r = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('Plan image could not be read (' + r.getResponseCode() + ').');
+  const b = r.getBlob();
+  if (b.getBytes().length > 20 * 1024 * 1024) throw new Error('Plan image is too large.');
+  return { type: b.getContentType() || 'image/jpeg', data: Utilities.base64Encode(b.getBytes()) };
+}
 
 function send_(p) {
   const me = sender_(p.idToken);
@@ -137,5 +152,5 @@ function send_(p) {
   if (FROM_ALIAS) { try { if (GmailApp.getAliases().some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) alias = FROM_ALIAS; } catch (e) {} }
   if (alias) GmailApp.sendEmail(to.join(','), subject, 'This message needs an email app that shows HTML.', Object.assign({ from: alias }, opts));
   else MailApp.sendEmail(Object.assign({ to: to.join(','), subject: subject }, opts));
-  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.2' };
+  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.8' };
 }
