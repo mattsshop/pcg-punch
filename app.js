@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.3';
+const VERSION = 'v0.5.4';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -114,8 +114,9 @@ function route(u) {
   if (pw && !u.emailVerified) { $('vEmail').textContent = u.email; show('scrVerify'); return; }
   S.isOwner = String(u.email || '').toLowerCase() === OWNER && u.emailVerified;
   const meRef = F.doc(db, 'users', u.uid);
-  S.unsub.me = F.onSnapshot(meRef, async snap => {
+  S.unsub.me = F.onSnapshot(meRef, { includeMetadataChanges: true }, async snap => {
     const d = snap.exists() ? snap.data() : null;
+    if (!d && snap.metadata.fromCache) { showLoading(); return; } // new device: wait for the server before deciding
     if (!d && S.isOwner) {
       await F.setDoc(meRef, { name: u.displayName || 'Matt Holtzclaw', email: u.email, company: 'Perimeter Construction Group',
         role: 'Admin', status: 'Approved', requestedAt: F.serverTimestamp() });
@@ -156,8 +157,12 @@ function enterApp() {
   if (ROOM_CODE && !S.scanHandled) openScan();
   fillTrades(); processPhotoQueue(); loadQueuedThumbs(); updateNet();
   F.updateDoc(F.doc(db, 'users', S.user.uid), { lastSeen: F.serverTimestamp() }).catch(() => {});
-  S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), snap => {
+  clearTimeout(S.projTimer); S.projServer = false;
+  S.projTimer = setTimeout(() => { if (!S.projServer && !S.projects.length) noProjects(); }, 12000);
+  S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), { includeMetadataChanges: true }, snap => {
+    if (!snap.metadata.fromCache) S.projServer = true;
     S.projects = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    if (!S.projects.length && !S.projServer) { renderProjects(); showProjLoading(); return; } // this device has nothing saved yet
     renderProjects();
     const want = S.projects.find(p => p.id === S.pid) ? S.pid : (S.projects.find(p => p.id === store('pcg_pid')) || S.projects[0] || {}).id;
     if (want !== S.pid) selectProject(want);
@@ -174,13 +179,23 @@ function renderProjects() {
 }
 $('projSel').onchange = () => selectProject($('projSel').value);
 
+function showProjLoading() {
+  $('plan').style.display = 'none'; $('planMsg').classList.remove('hidden');
+  $('planMsg').innerHTML = '<div>Loading projects…</div>';
+}
+function showLoading() {
+  show('scrApp'); showProjLoading();
+}
 function noProjects() {
   S.pid = null; S.floors = []; renderTabs();
   $('plan').style.display = 'none';
   $('planMsg').classList.remove('hidden');
-  $('planMsg').innerHTML = S.me.role === 'Admin'
-    ? '<div>No projects yet.</div><button class="primary" id="firstProj">Create your first project</button>'
-    : '<div>No projects yet. Check back once the project manager sets one up.</div>';
+  const who = `<div style="color:#5f6368;font-size:13px;margin-top:8px">Signed in as ${esc(S.user.email || '')}</div>`;
+  $('planMsg').innerHTML = !S.projServer
+    ? '<div>Can\'t reach the PCG Punch database from this device.</div><div style="font-size:13px;margin-top:6px">Check the signal. On an iPhone or iPad, try turning off content blockers or iCloud Private Relay for this site, then reload.</div>' + who
+    : S.me.role === 'Admin'
+    ? '<div>No projects yet.</div><button class="primary" id="firstProj">Create your first project</button>' + who
+    : '<div>No projects yet. Check back once the project manager sets one up.</div>' + who;
   const b = $('firstProj'); if (b) b.onclick = openProjects;
 }
 

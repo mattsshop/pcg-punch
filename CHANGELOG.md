@@ -1,5 +1,11 @@
 # PCG Punch changelog
 
+## v0.5.4 (2026-11-07)
+- On a new phone or tablet, the app shows "Loading projects…" until it has heard from the database, instead of "No projects yet" with a Create button (which could make a duplicate project).
+- If the database can't be reached after about 12 seconds, it says so and suggests what to check (signal, content blockers, iCloud Private Relay).
+- The empty-projects message shows which account is signed in.
+- On a new device, the owner's user record is no longer rewritten before the database answers.
+
 ## v0.5.3 (2026-11-07)
 - **Fixed lost photos.** If an item was open while its photo was still uploading, saving it afterward removed the photo and deleted the file. Saving now only removes photos you took off with ×.
 - If a phone or browser can't keep photos on the device (some private-browsing modes), the photo uploads straight away instead of being dropped, with a "Photo uploaded" / "Photo not uploaded: reason" message.
