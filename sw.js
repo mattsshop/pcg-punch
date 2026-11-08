@@ -1,8 +1,8 @@
-// PCG Punch service worker (v0.5.2): opens the app with no signal.
+// PCG Punch service worker (v0.5.3): opens the app with no signal.
 // App files: network first (so updates show up), cached copy when offline.
 // Firebase SDK, PDF reader, plan images and photos: cached once, reused offline.
-const CACHE = 'pcg-punch-v0.5.2';
-const SHELL = ['./', './index.html', './app.js?v=0.5.2', './fb.js', './qr.js', './seeds.js', './style.css?v=0.5.2', './config.js?v=0.5.2',
+const CACHE = 'pcg-punch-v0.5.3';
+const SHELL = ['./', './index.html', './app.js?v=0.5.3', './fb.js', './qr.js', './seeds.js', './style.css?v=0.5.3', './config.js?v=0.5.3',
   './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = ['https://www.gstatic.com/firebasejs/', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'];
 const FILES = 'https://firebasestorage.googleapis.com/';

@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.5.3 (2026-11-07)
+- **Fixed lost photos.** If an item was open while its photo was still uploading, saving it afterward removed the photo and deleted the file. Saving now only removes photos you took off with ×.
+- If a phone or browser can't keep photos on the device (some private-browsing modes), the photo uploads straight away instead of being dropped, with a "Photo uploaded" / "Photo not uploaded: reason" message.
+
 ## v0.5.2 (2026-11-07)
 - After sending, the message says how many photos went in the email (e.g. "3 of 3 photos"), how many were still waiting to upload, and whether plans were left out.
 - If photo uploads are refused, the list footer now says why (e.g. "upload refused: Storage rules") instead of just "photo(s) to upload".

@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.2';
+const VERSION = 'v0.5.3';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -654,7 +654,7 @@ function fillForm(it) {
   $('iRoom').value = it.room || ''; $('iTrade').value = it.trade || ''; $('iDesc').value = it.description || '';
   $('iAssigned').value = it.assignedTo || ''; $('iPriority').value = it.priority || 'Medium';
   $('iDue').value = it.dueDate || ''; $('iStatus').value = it.status || 'Open'; $('iNotes').value = it.notes || '';
-  S.keptPhotos = (it.photos || []).slice(); S.pendingPhotos = [];
+  S.keptPhotos = (it.photos || []).slice(); S.openedPhotos = S.keptPhotos.slice(); S.pendingPhotos = [];
   renderPhotos();
 }
 function showModal() { $('itemModal').classList.remove('hidden'); renderPins(); }
@@ -718,26 +718,37 @@ $('iSave').onclick = async () => {
     floor: ed.floor, x: ed.x, y: ed.y,
     room: $('iRoom').value.trim(), trade: $('iTrade').value, description: $('iDesc').value.trim(),
     assignedTo: $('iAssigned').value.trim(), priority: $('iPriority').value, dueDate: $('iDue').value,
-    status, notes: $('iNotes').value.trim(), photos: S.keptPhotos,
+    status, notes: $('iNotes').value.trim(),
     updatedAt: F.serverTimestamp(), updatedBy: meStamp()
   };
   const before = isNew ? null : S.items.find(i => i.id === ed.id);
   if (status === 'Closed' && (!before || before.status !== 'Closed')) data.closedAt = F.serverTimestamp();
   if (status !== 'Closed') data.closedAt = null;
-  if (isNew) Object.assign(data, { number: null, createdAt: F.serverTimestamp(), createdBy: meStamp() });
+  if (isNew) Object.assign(data, { number: null, photos: [], createdAt: F.serverTimestamp(), createdBy: meStamp() });
+  // Only remove the photos taken off in this window. Never rewrite the whole list, so a photo that
+  // finished uploading while the window was open isn't dropped.
+  const removed = isNew ? [] : (S.openedPhotos || []).filter(p => !S.keptPhotos.some(k => k.path === p.path));
+  if (removed.length) data.photos = F.arrayRemove(...removed);
   store('pcg_room', data.room); store('pcg_trade', data.trade);
   if (before) markDirty(before);
   markDirty({ floor: data.floor, room: data.room });
   (isNew ? F.setDoc(ref, data) : F.updateDoc(ref, data)).catch(err => toast('Not saved: ' + friendly(err), 8000));
   // photos removed in this edit
-  if (before) (before.photos || []).filter(p => !S.keptPhotos.some(k => k.path === p.path))
-    .forEach(p => { [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})); });
+  removed.forEach(p => { [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})); });
   // new photos go into a queue on this device and upload when there is signal
   const newOnes = S.pendingPhotos.slice();
   closeModal();
   toast(isNew ? 'Tag added' : 'Saved');
   if (newOnes.length) {
-    for (const p of newOnes) await PQ.add({ pid: S.pid, itemId: ref.id, full: p.full, thumb: p.thumb, at: Date.now() });
+    for (const p of newOnes) {
+      const e = { pid: S.pid, itemId: ref.id, full: p.full, thumb: p.thumb, at: Date.now() };
+      try { await PQ.add(e); }
+      catch (err) { // this browser can't keep photos on the device: upload straight away instead
+        console.warn('Photo queue unavailable', err);
+        e.k = 'd' + e.at + Math.random().toString(36).slice(2, 6);
+        uploadPhoto(e).then(() => toast('Photo uploaded')).catch(er => toast('Photo not uploaded: ' + (er.code || er.message), 10000));
+      }
+    }
     await loadQueuedThumbs(); renderList(); processPhotoQueue();
   }
 };
@@ -776,21 +787,24 @@ async function loadQueuedThumbs() {
     updateSync();
   } catch (e) { /* storage unavailable (private mode) */ }
 }
+async function uploadPhoto(e) {
+  const base = `projects/${e.pid}/photos/${e.itemId}-${e.at}-${e.k}`;
+  await F.uploadBytes(F.ref(storage, base + '.jpg'), e.full, { contentType: 'image/jpeg' });
+  await F.uploadBytes(F.ref(storage, base + '-thumb.jpg'), e.thumb, { contentType: 'image/jpeg' });
+  const [url, thumbUrl] = await Promise.all([F.getDownloadURL(F.ref(storage, base + '.jpg')), F.getDownloadURL(F.ref(storage, base + '-thumb.jpg'))]);
+  await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
+    { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
+  const it = S.items.find(x => x.id === e.itemId); if (it && e.pid === S.pid) markDirty(it);
+}
 let pqBusy = false;
 async function processPhotoQueue() {
   if (pqBusy || navigator.onLine === false || !S.me || !canEdit()) return;
   pqBusy = true;
   try {
     for (const e of await PQ.all()) {
-      const base = `projects/${e.pid}/photos/${e.itemId}-${e.at}-${e.k}`;
       try {
-        await F.uploadBytes(F.ref(storage, base + '.jpg'), e.full, { contentType: 'image/jpeg' });
-        await F.uploadBytes(F.ref(storage, base + '-thumb.jpg'), e.thumb, { contentType: 'image/jpeg' });
-        const [url, thumbUrl] = await Promise.all([F.getDownloadURL(F.ref(storage, base + '.jpg')), F.getDownloadURL(F.ref(storage, base + '-thumb.jpg'))]);
-        await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
-          { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
+        await uploadPhoto(e);
         await PQ.del(e.k); S.pqError = '';
-        const it = S.items.find(x => x.id === e.itemId); if (it && e.pid === S.pid) markDirty(it);
       } catch (err) {
         if (/not-found/.test(err.code || '') && !/object-not-found/.test(err.code || '')) { await PQ.del(e.k); continue; } // item was deleted
         console.warn('Photo upload failed', err);

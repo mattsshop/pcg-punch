@@ -7,7 +7,7 @@ export {
 export {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, collection, query, orderBy, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch,
-  runTransaction, arrayUnion
+  runTransaction, arrayUnion, arrayRemove
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 export {
   getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject
