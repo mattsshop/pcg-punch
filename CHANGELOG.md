@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.5.10 (2026-11-08)
+- Mailer alias changed to **pcgpunch@gmail.com** (a "Send mail as" address on matt@mattsshop.com). Mailer-only change; the app is unchanged.
+
 ## v0.5.9 (2026-11-08)
 - Mailer sends from **punchlist@perimeterconstructiongroup.com** (Gmail "Send mail as" alias). Opening the mailer link shows which address it sends from, or why the alias isn't being used.
 - After sending, the app's message shows the From address. **Redeploy the mailer** and allow the new Gmail permission.

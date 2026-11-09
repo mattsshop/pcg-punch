@@ -1,5 +1,5 @@
 /**
- * PCG Punch — email sender (v0.5.9)
+ * PCG Punch — email sender (v0.5.10)
  *
  * The PCG Punch app (GitHub Pages + Firebase) asks this script to send punch-list emails,
  * because Firebase can't send email itself. It only sends for people who are signed in to
@@ -18,7 +18,7 @@
 const FIREBASE_API_KEY = 'AIzaSyDHpwkWGCCgBz7_VZt0qo84mkaQdO9B2Wo'; // from config.js (not secret)
 const FIREBASE_PROJECT = 'pcg-punch';
 const OWNER_EMAIL = 'matt@mattsshop.com';     // always allowed to send
-const FROM_ALIAS = 'punchlist@perimeterconstructiongroup.com';                          // optional: an address set up in Gmail > Settings > Accounts > "Send mail as"
+const FROM_ALIAS = 'pcgpunch@gmail.com';                          // optional: an address set up in Gmail > Settings > Accounts > "Send mail as"
 const DISPLAY_NAME = 'PCG Punch';               // emails show as "<Sender> via PCG Punch"
 const CC_SENDER = true;                         // send the person who emailed a copy
 const MAX_PHOTOS = 150;
@@ -32,7 +32,7 @@ function doGet() {
     if (aliases.some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) from = FROM_ALIAS;
     else if (!note) note = ' (' + FROM_ALIAS + ' is not a "Send mail as" address in this Gmail account. Found: ' + (aliases.join(', ') || 'none') + ')';
   }
-  return ContentService.createTextOutput('PCG Punch mailer v0.5.9 is running. Sends from: ' + from + note +
+  return ContentService.createTextOutput('PCG Punch mailer v0.5.10 is running. Sends from: ' + from + note +
     '. Daily emails left: ' + MailApp.getRemainingDailyQuota());
 }
 
@@ -160,6 +160,6 @@ function send_(p) {
   if (FROM_ALIAS) { try { if (GmailApp.getAliases().some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) alias = FROM_ALIAS; } catch (e) {} }
   if (alias) GmailApp.sendEmail(to.join(','), subject, 'This message needs an email app that shows HTML.', Object.assign({ from: alias }, opts));
   else MailApp.sendEmail(Object.assign({ to: to.join(','), subject: subject }, opts));
-  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.9',
+  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.10',
     from: alias || Session.getEffectiveUser().getEmail(), aliasMissing: !!FROM_ALIAS && !alias };
 }
