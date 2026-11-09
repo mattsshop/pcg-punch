@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.5.9';
+const VERSION = 'v0.6.0';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -583,7 +583,7 @@ function watchItems(pid) {
 function assignNumbers() {
   if (!S.pid || !canEdit() || navigator.onLine === false) return;
   const pid = S.pid, projRef = F.doc(db, 'projects', pid);
-  S.items.filter(i => i.number == null && (S.me.role === 'Admin' || (i.createdBy && i.createdBy.uid === S.user.uid)))
+  S.items.filter(i => i.number == null && !i.groupId && (S.me.role === 'Admin' || (i.createdBy && i.createdBy.uid === S.user.uid)))
     .forEach(i => {
       if (S.numbering.has(i.id)) return;
       S.numbering.add(i.id);
@@ -602,30 +602,35 @@ function renderAll() { renderTabs(); renderList(); renderPins(); updateSync(); }
 
 function filtered(ignoreFloor) {
   const q = $('fSearch').value.trim().toLowerCase(), st = $('fStatus').value, tr = $('fTrade').value, rf = S.roomFilter;
-  const thisFloor = $('fFloor').checked && !ignoreFloor, mine = $('fMine').checked && S.me;
+  const thisFloor = $('fFloor').checked && !ignoreFloor && !S.groupFilter, mine = $('fMine').checked && S.me, gen = $('fGen').checked;
   const myName = S.me ? String(S.me.name || '').toLowerCase() : '';
   return (S.items || []).filter(i => {
+    if (S.groupFilter && i.groupId !== S.groupFilter) return false;
+    if (!gen && i.groupId && !S.groupFilter) return false;
     if (rf && (i.floor !== rf.floor || !roomMatch(i.room, rf.room))) return false;
     if (thisFloor && i.floor !== S.floor) return false;
     if (st === 'active' && i.status === 'Closed') return false;
     if (st && st !== 'active' && i.status !== st) return false;
     if (tr && i.trade !== tr) return false;
     if (mine && String(i.assignedTo || '').toLowerCase() !== myName) return false;
-    if (q && ![i.number, i.room, i.description, i.assignedTo, i.trade, i.notes].join(' ').toLowerCase().includes(q)) return false;
+    if (q && ![i.number, i.groupCode, i.room, i.description, i.assignedTo, i.trade, i.notes].join(' ').toLowerCase().includes(q)) return false;
     return true;
-  }).sort((a, b) => a.floor - b.floor || (a.number || 1e9) - (b.number || 1e9));
+  }).sort((a, b) => a.floor - b.floor || byOrd(a, b));
 }
-['fSearch', 'fStatus', 'fTrade', 'fFloor', 'fMine'].forEach(id => $(id).addEventListener('input', () => { renderList(); renderPins(); }));
+['fSearch', 'fStatus', 'fTrade', 'fFloor', 'fMine', 'fGen'].forEach(id => $(id).addEventListener('input', () => { renderList(); renderPins(); }));
 
 const floorLabel = n => (S.floors.find(f => f.n === n) || {}).label || 'Level ' + n;
-const numText = i => i.number == null ? '…' : i.number;
+const numText = i => i.groupCode || (i.number == null ? '…' : i.number);
+// sort key: numbered items first, then general items (G1, G2…), then items still waiting for a number
+const ord = i => i.number != null ? i.number : i.groupCode ? 1e8 + (parseInt(String(i.groupCode).slice(1)) || 0) : 1e9;
+const byOrd = (a, b) => ord(a) - ord(b) || String(a.room || '').localeCompare(String(b.room || ''), undefined, { numeric: true });
 
 function renderPins() {
   const img = $('plan'); if (!img.naturalWidth || img.style.display === 'none') { $('pins').innerHTML = ''; return; }
   const ed = S.editing;
   let html = filtered(true).filter(i => i.floor === S.floor).map(i => {
     if (ed && ed.id === i.id && ed._moved) return '';
-    return `<div class="pw" style="left:${i.x * 100}%;top:${i.y * 100}%"><div class="pin ${STATUS_CLS(i.status)}${i._pending ? ' pending' : ''}" data-id="${i.id}" title="#${numText(i)} ${esc(i.room)} – ${esc(i.description)}"><span>${numText(i)}</span></div></div>`;
+    return `<div class="pw" style="left:${i.x * 100}%;top:${i.y * 100}%"><div class="pin ${STATUS_CLS(i.status)}${i._pending ? ' pending' : ''}${i.groupId ? ' gen' : ''}" data-id="${i.id}" title="#${numText(i)} ${esc(i.room)} – ${esc(i.description)}"><span>${numText(i)}</span></div></div>`;
   }).join('');
   if (ed && ed.floor === S.floor && ed.x != null && (!ed.id || ed._moved)) {
     html += `<div class="pw" style="left:${ed.x * 100}%;top:${ed.y * 100}%"><div class="pin temp"><span>${ed.id ? numText(ed) : '+'}</span></div></div>`;
@@ -636,7 +641,13 @@ function renderPins() {
 function renderList() {
   if (!S.me) return;
   const items = filtered();
-  $('list').innerHTML = items.length ? items.map(i => `
+  if (S.groupFilter && !S.items.some(i => i.groupId === S.groupFilter)) clearGroupFilter(true);
+  updateGroupChip();
+  const rowHtml = r => r.g ? groupRow(r.g, items) : itemRow(r.i);
+  $('list').innerHTML = items.length ? listRows(items).map(rowHtml).join('') : `<div style="padding:16px;color:var(--mut)">${S.items.length ? 'No items match.' : 'No items yet.' + (canEdit() ? ' Tap <b>+ Tag</b>, then tap the plan.' : '')}</div>`;
+  renderListExtras();
+}
+const itemRow = i => `
     <div class="row" data-id="${i.id}">
       <div class="num ${STATUS_CLS(i.status)}">${numText(i)}</div>
       <div class="body">
@@ -644,7 +655,9 @@ function renderList() {
         <div class="d">${esc(i.description)}</div>
         <div class="m">${esc(floorLabel(i.floor))} · ${esc(i.status)}${i.assignedTo ? ' · ' + esc(i.assignedTo) : ''}${i.dueDate ? ' · due ' + esc(i.dueDate) : ''} · <span class="pri-${esc(i.priority)}">${esc(i.priority)}</span>${(i.photos || []).length || (S.queued[i.id] || []).length ? ' · 📷' + ((i.photos || []).length + (S.queued[i.id] || []).length) : ''}${i._pending ? ' · <i>saving…</i>' : ''}</div>
       </div>
-    </div>`).join('') : `<div style="padding:16px;color:var(--mut)">${S.items.length ? 'No items match.' : 'No items yet.' + (canEdit() ? ' Tap <b>+ Tag</b>, then tap the plan.' : '')}</div>`;
+    </div>`;
+function renderListExtras() {
+  const items = filtered();
   const open = S.items.filter(i => i.status !== 'Closed').length;
   $('counts').textContent = `Showing ${items.length} · ${open} open of ${S.items.length} total`;
   const known = new Set((S.rooms || []).map(r => r.room));
@@ -656,6 +669,7 @@ function renderList() {
 }
 $('list').addEventListener('click', e => {
   const row = e.target.closest('.row'); if (!row) return;
+  if (row.dataset.group) { setGroupFilter(row.dataset.group); return; }
   const it = S.items.find(i => i.id === row.dataset.id); if (!it) return;
   $('panel').classList.remove('open');
   if (it.floor !== S.floor) { S.pendingFocus = it.id; loadFloor(it.floor); } else { focusItem(it.id); openItem(it.id); }
@@ -704,6 +718,7 @@ $('addBtn').onclick = () => {
 
 // ---- item window
 function openNew(x, y) {
+  resetItemWindow();
   S.editing = { x, y, floor: S.floor, status: 'Open', priority: 'Medium', photos: [] };
   const near = nearestRoom(S.floor, x, y);
   fillForm({ room: near ? near.room : (S.roomFilter ? S.roomFilter.room : (store('pcg_room') || '')), trade: store('pcg_trade') || '', description: '', assignedTo: '', priority: 'Medium', dueDate: '', status: 'Open', notes: '', photos: [] });
@@ -713,13 +728,18 @@ function openNew(x, y) {
 }
 function openItem(id) {
   const it = S.items.find(i => i.id === id); if (!it) return;
+  resetItemWindow();
   S.editing = Object.assign({}, it);
   fillForm(it);
-  $('itemTitle').textContent = `#${numText(it)} – ${floorLabel(it.floor)}`;
+  $('itemTitle').textContent = it.groupId ? `${it.groupCode} · Room ${it.room || '—'} – ${floorLabel(it.floor)}` : `#${numText(it)} – ${floorLabel(it.floor)}`;
   $('iDelete').style.display = ''; $('iMove').style.display = '';
   const when = t => t ? new Date(t.toDate ? t.toDate() : t).toLocaleString() : '';
-  $('iMeta').textContent = [it.createdBy ? `Added by ${it.createdBy.name} ${when(it.createdAt)}` : '',
-    it.updatedBy ? `Updated by ${it.updatedBy.name} ${when(it.updatedAt)}` : '', it.closedAt ? 'Closed ' + when(it.closedAt) : ''].filter(Boolean).join(' · ');
+  const meta = [it.createdBy ? `Added by ${it.createdBy.name} ${when(it.createdAt)}` : '',
+    it.updatedBy ? `Updated by ${it.updatedBy.name} ${when(it.updatedAt)}` : '', it.closedAt ? 'Closed ' + when(it.closedAt) : ''].filter(Boolean).map(esc).join(' · ');
+  const g = it.groupId ? groupItems(it.groupId) : [];
+  $('iMeta').innerHTML = (it.groupId ? `<div>Part of general item <b>${esc(it.groupCode)}</b> (${g.length} rooms). Changes here are for this room only.` +
+    (canEdit() ? ` <a href="#" id="iGroupLink">Edit all ${g.length} rooms</a>` : '') + '</div>' : '') + meta;
+  if ($('iGroupLink')) $('iGroupLink').onclick = ev => { ev.preventDefault(); openGroup(it.groupId); };
   showModal();
 }
 function fillForm(it) {
@@ -733,7 +753,7 @@ function fillForm(it) {
 }
 function showModal() { $('itemModal').classList.remove('hidden'); renderPins(); }
 function closeModal(quiet) {
-  $('itemModal').classList.add('hidden'); S.editing = null; S.moving = false;
+  $('itemModal').classList.add('hidden'); S.editing = null; S.moving = false; resetItemWindow();
   if (!quiet) { hint(S.adding ? 'Tap the plan where the issue is' : ''); renderPins(); }
 }
 $('iCancel').onclick = () => closeModal();
@@ -745,7 +765,8 @@ $('iMove').onclick = () => {
 function renderPhotos() {
   const box = $('iPhotos'), edit = canEdit();
   const queued = S.editing && S.editing.id ? (S.queued[S.editing.id] || []) : [];
-  let html = S.keptPhotos.map((p, i) => `<div class="ph"><img src="${esc(p.thumbUrl || p.url)}" data-full="${esc(p.url)}" alt="">${edit ? `<button data-rm="${i}">×</button>` : ''}</div>`).join('');
+  const rm = edit && !(S.editing && S.editing._mode === 'gedit'); // photos already on a general item are removed room by room
+  let html = S.keptPhotos.map((p, i) => `<div class="ph"><img src="${esc(p.thumbUrl || p.url)}" data-full="${esc(p.url)}" alt="">${rm ? `<button data-rm="${i}">×</button>` : ''}</div>`).join('');
   html += queued.map(u => `<div class="ph queued" title="Uploading when there is signal"><img src="${u}" data-full="${u}" alt=""></div>`).join('');
   html += S.pendingPhotos.map((p, i) => `<div class="ph"><img src="${p.preview}" data-full="${p.preview}" alt=""><button data-rmnew="${i}">×</button></div>`).join('');
   if (edit) html += '<div class="addph" id="addPh">+ Photo</div>';
@@ -783,9 +804,13 @@ $('iFile').addEventListener('change', async e => {
 
 // Save: written to the phone first (works with no signal), then synced by Firestore.
 $('iSave').onclick = async () => {
-  const ed = S.editing;
-  if (!$('iDesc').value.trim()) { toast('Add a description'); $('iDesc').focus(); return; }
+  const ed = S.editing; if (!ed) return;
+  if (ed._mode === 'gnew') return saveGroupNew();
+  if (ed._mode === 'gedit') return saveGroupEdit();
   const isNew = !ed.id;
+  if (isNew && !$('iDesc').value.trim() && !S.pendingPhotos.length) { closeModal(); return; } // nothing entered: no tag is made
+  if (!$('iDesc').value.trim()) { toast('Add a description'); $('iDesc').focus(); return; }
+  if (!isNew && !itemChanged(ed)) { closeModal(); return; } // just looked at it
   const ref = isNew ? F.doc(F.collection(db, 'projects', S.pid, 'items')) : F.doc(db, 'projects', S.pid, 'items', ed.id);
   const status = $('iStatus').value;
   const data = {
@@ -807,15 +832,19 @@ $('iSave').onclick = async () => {
   if (before) markDirty(before);
   markDirty({ floor: data.floor, room: data.room });
   (isNew ? F.setDoc(ref, data) : F.updateDoc(ref, data)).catch(err => toast('Not saved: ' + friendly(err), 8000));
-  // photos removed in this edit
-  removed.forEach(p => { [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})); });
+  // photos removed in this edit (files shared with other rooms of a general item are kept)
+  deletePhotoFiles(removed, [ed.id]);
   // new photos go into a queue on this device and upload when there is signal
   const newOnes = S.pendingPhotos.slice();
   closeModal();
   toast(isNew ? 'Tag added' : 'Saved');
+  await queuePhotos(newOnes, [ref.id]);
+};
+async function queuePhotos(newOnes, ids) {
   if (newOnes.length) {
     for (const p of newOnes) {
-      const e = { pid: S.pid, itemId: ref.id, full: p.full, thumb: p.thumb, at: Date.now() };
+      const e = { pid: S.pid, itemId: ids[0], full: p.full, thumb: p.thumb, at: Date.now() };
+      if (ids.length > 1) e.itemIds = ids;
       try { await PQ.add(e); }
       catch (err) { // this browser can't keep photos on the device: upload straight away instead
         console.warn('Photo queue unavailable', err);
@@ -825,16 +854,244 @@ $('iSave').onclick = async () => {
     }
     await loadQueuedThumbs(); renderList(); processPhotoQueue();
   }
-};
+}
 $('iDelete').onclick = async () => {
   const ed = S.editing;
-  if (!confirm(`Delete #${numText(ed)}? This can't be undone.`)) return;
+  if (ed._mode === 'gedit') {
+    const items = groupItems(ed.groupId);
+    if (!confirm(`Delete general item ${ed.groupCode} from all ${items.length} rooms? This can't be undone.`)) return;
+    for (let k = 0; k < items.length; k += 450) {
+      const b = F.writeBatch(db);
+      items.slice(k, k + 450).forEach(i => b.delete(F.doc(db, 'projects', S.pid, 'items', i.id)));
+      b.commit().catch(err => toast(friendly(err), 6000));
+    }
+    items.forEach(markDirty);
+    deletePhotoFiles(items.flatMap(i => i.photos || []), items.map(i => i.id));
+    clearGroupFilter(true); closeModal(); toast(`Deleted ${ed.groupCode} (${items.length} rooms)`); return;
+  }
+  if (!confirm(`Delete ${ed.groupId ? ed.groupCode + ' from room ' + ed.room : '#' + numText(ed)}? This can't be undone.`)) return;
   const it = S.items.find(i => i.id === ed.id) || ed;
   F.deleteDoc(F.doc(db, 'projects', S.pid, 'items', ed.id)).catch(err => toast(friendly(err), 6000));
   markDirty(it);
-  (it.photos || []).forEach(p => [p.path, p.thumbPath].filter(Boolean).forEach(x => F.deleteObject(F.ref(storage, x)).catch(() => {})));
-  closeModal(); toast('Deleted #' + numText(ed));
+  deletePhotoFiles(it.photos || [], [ed.id]);
+  closeModal(); toast('Deleted ' + (ed.groupId ? ed.groupCode + ' in room ' + ed.room : '#' + numText(ed)));
 };
+// Delete photo files unless another item (e.g. another room of the same general item) still shows them
+function deletePhotoFiles(photos, goneIds) {
+  const used = new Set();
+  S.items.forEach(i => { if (!goneIds.includes(i.id)) (i.photos || []).forEach(p => { used.add(p.path); used.add(p.thumbPath); }); });
+  const seen = new Set();
+  photos.forEach(p => [p.path, p.thumbPath].filter(Boolean).forEach(x => {
+    if (used.has(x) || seen.has(x)) return; seen.add(x);
+    F.deleteObject(F.ref(storage, x)).catch(() => {});
+  }));
+}
+function itemChanged(ed) {
+  const cur = S.items.find(i => i.id === ed.id) || ed;
+  const pairs = [['room', 'iRoom', 1], ['trade', 'iTrade'], ['description', 'iDesc', 1], ['assignedTo', 'iAssigned', 1], ['priority', 'iPriority'],
+    ['dueDate', 'iDue'], ['status', 'iStatus'], ['notes', 'iNotes', 1]];
+  if (ed._moved || S.pendingPhotos.length || S.keptPhotos.length !== (S.openedPhotos || []).length) return true;
+  return pairs.some(([k, id, trim]) => (trim ? $(id).value.trim() : $(id).value) !== (cur[k] || (k === 'priority' ? 'Medium' : k === 'status' ? 'Open' : '')));
+}
+
+// =====================================================================
+// General items (v0.6.0): one item applied to many rooms. Each room gets its own copy (so it can be closed
+// room by room, shows on that room's QR page, and exports to Fieldwire per room). Copies share groupId and
+// a code like G3, and show as one row in the list.
+// =====================================================================
+function groupItems(gid) { return S.items.filter(i => i.groupId === gid).sort(byOrd); }
+function nextGroupCode() {
+  let m = 0; S.items.forEach(i => { const n = parseInt(String(i.groupCode || '').slice(1)); if (n > m) m = n; });
+  return 'G' + (m + 1);
+}
+function listRows(items) {
+  if (S.groupFilter) return items.map(i => ({ i }));
+  const seen = new Set(), rows = [];
+  items.forEach(i => {
+    if (!i.groupId) rows.push({ i });
+    else if (!seen.has(i.groupId)) { seen.add(i.groupId); rows.push({ g: i.groupId, i }); }
+  });
+  return rows;
+}
+function groupSummary(gid) {
+  const all = groupItems(gid), open = all.filter(i => i.status !== 'Closed');
+  return { all, open, first: all[0] || {}, floors: [...new Set(all.map(i => i.floor))].sort((a, b) => a - b) };
+}
+function groupRow(gid) {
+  const { all, open, first, floors } = groupSummary(gid);
+  const photos = (first.photos || []).length;
+  return `
+    <div class="row grp" data-group="${esc(gid)}">
+      <div class="num g ${open.length ? '' : 's-Closed'}">${esc(first.groupCode)}</div>
+      <div class="body">
+        <div class="t">General · ${esc(first.trade || 'No trade')} · ${all.length} room(s)</div>
+        <div class="d">${esc(first.description)}</div>
+        <div class="m"><b>${open.length} of ${all.length} open</b> · ${floors.map(f => esc(floorLabel(f))).join(', ')}${first.assignedTo ? ' · ' + esc(first.assignedTo) : ''}${first.dueDate ? ' · due ' + esc(first.dueDate) : ''} · <span class="pri-${esc(first.priority)}">${esc(first.priority)}</span>${photos ? ' · 📷' + photos : ''}</div>
+      </div>
+    </div>`;
+}
+function setGroupFilter(gid) {
+  S.groupFilter = gid; renderList(); renderPins();
+  if (innerWidth <= 800) $('panel').classList.add('open');
+}
+function clearGroupFilter(quiet) { S.groupFilter = null; $('groupChip').classList.add('hidden'); if (!quiet) { renderList(); renderPins(); } }
+function updateGroupChip() {
+  if (!S.groupFilter) { $('groupChip').classList.add('hidden'); return; }
+  const { all, open, first } = groupSummary(S.groupFilter);
+  $('groupChipText').textContent = `${first.groupCode} · ${open.length} of ${all.length} rooms open`;
+  $('groupChip').classList.remove('hidden');
+}
+$('groupChipX').onclick = () => clearGroupFilter();
+$('groupEdit').onclick = () => { if (S.groupFilter) openGroup(S.groupFilter); };
+
+function setKeepStatus(on) {
+  const o = $('iStatus').querySelector('option[value=""]');
+  if (on && !o) $('iStatus').insertAdjacentHTML('afterbegin', '<option value="">— keep each room\'s status —</option>');
+  if (!on && o) o.remove();
+}
+function resetItemWindow() {
+  $('iRoomBox').classList.remove('hidden'); $('iGroupBox').classList.add('hidden');
+  setKeepStatus(false); $('iDelete').textContent = 'Delete';
+}
+
+// rooms a general item can go to (placed, active, not whole-floor labels)
+function groupRooms() { return (S.rooms || []).filter(r => r.type !== 'Floor' && r.active !== false && r.x != null); }
+function roomsForGroup(v) {
+  const rs = groupRooms();
+  if (v === 'guest') return rs.filter(r => r.type === 'Guest room');
+  if (v === 'all') return rs;
+  if (v.startsWith('floor:')) return rs.filter(r => r.type === 'Guest room' && r.floor === Number(v.slice(6)));
+  if (v.startsWith('type:')) return rs.filter(r => r.type === v.slice(5));
+  if (v === 'pick') return rs.filter(r => S.pick.has(r.id));
+  return [];
+}
+function fillGroupScope() {
+  const rs = groupRooms(), n = v => roomsForGroup(v).length;
+  const floors = [...new Set(rs.map(r => r.floor))].sort((a, b) => a - b);
+  const types = [...new Set(rs.map(r => r.type).filter(t => t && t !== 'Guest room'))];
+  $('iScope').innerHTML = `<option value="guest">All guest rooms (${n('guest')})</option>` +
+    floors.map(f => `<option value="floor:${f}">Guest rooms on ${esc(floorLabel(f))} (${n('floor:' + f)})</option>`).join('') +
+    types.map(t => `<option value="type:${esc(t)}">${esc(t)} (${n('type:' + t)})</option>`).join('') +
+    `<option value="all">Every room and area (${n('all')})</option><option value="pick">Pick rooms…</option>`;
+  const byFloor = {}; rs.slice().sort((a, b) => a.room.localeCompare(b.room, undefined, { numeric: true })).forEach(r => (byFloor[r.floor] = byFloor[r.floor] || []).push(r));
+  $('iPick').innerHTML = Object.keys(byFloor).sort((a, b) => a - b).map(f => `<div class="fl">${esc(floorLabel(Number(f)))}
+      <button type="button" data-pickfl="${f}">All</button><button type="button" data-pickfl="${f}" data-off="1">None</button></div>` +
+    byFloor[f].map(r => `<label><input type="checkbox" data-pick="${esc(r.id)}"${S.pick.has(r.id) ? ' checked' : ''}> ${esc(r.room)}${r.type !== 'Guest room' && r.name && r.name !== r.room ? ' ' + esc(r.name) : ''}</label>`).join('')).join('');
+  scopeChanged();
+}
+function scopeChanged() {
+  const v = $('iScope').value, rs = roomsForGroup(v);
+  $('iPick').classList.toggle('hidden', v !== 'pick');
+  const unplaced = (S.rooms || []).filter(r => r.type !== 'Floor' && r.active !== false && r.x == null).length;
+  $('iScopeCount').textContent = `${rs.length} room(s) will each get a copy` + (unplaced ? ` · ${unplaced} room(s) not placed on a plan are left out (Rooms & QR → Place)` : '');
+}
+$('iScope').onchange = scopeChanged;
+$('iPick').addEventListener('change', e => {
+  const id = e.target.dataset.pick; if (!id) return;
+  if (e.target.checked) S.pick.add(id); else S.pick.delete(id);
+  scopeChanged();
+});
+$('iPick').addEventListener('click', e => {
+  const f = e.target.dataset.pickfl; if (f == null) return;
+  groupRooms().filter(r => r.floor === Number(f)).forEach(r => e.target.dataset.off ? S.pick.delete(r.id) : S.pick.add(r.id));
+  $('iPick').querySelectorAll('input[data-pick]').forEach(c => c.checked = S.pick.has(c.dataset.pick));
+  scopeChanged();
+});
+
+$('genBtn').onclick = () => {
+  if (!S.pid) { toast('Create a project first'); return; }
+  if (!groupRooms().length) { toast('Add rooms first: Rooms & QR → load the room list, then place them on the plans.', 7000); return; }
+  resetItemWindow();
+  S.pick = new Set();
+  S.editing = { _mode: 'gnew', floor: S.floor, status: 'Open', priority: 'Medium', photos: [] };
+  fillForm({ room: '', trade: store('pcg_trade') || '', description: '', assignedTo: '', priority: 'Medium', dueDate: '', status: 'Open', notes: '', photos: [] });
+  $('iRoomBox').classList.add('hidden'); $('iGroupBox').classList.remove('hidden');
+  fillGroupScope();
+  $('itemTitle').textContent = `New general item – ${nextGroupCode()}`;
+  $('iDelete').style.display = 'none'; $('iMove').style.display = 'none';
+  $('iMeta').textContent = 'One copy goes to each room, so each room can be closed on its own. It shows as one row in the list.';
+  $('itemModal').classList.remove('hidden'); setTimeout(() => $('iDesc').focus(), 50);
+};
+function openGroup(gid) {
+  const { all, open, first, floors } = groupSummary(gid); if (!all.length) return;
+  resetItemWindow();
+  S.editing = { _mode: 'gedit', groupId: gid, groupCode: first.groupCode,
+    _orig: { trade: first.trade || '', description: first.description || '', assignedTo: first.assignedTo || '', priority: first.priority || 'Medium', dueDate: first.dueDate || '', notes: first.notes || '' } };
+  fillForm(first);
+  setKeepStatus(true); $('iStatus').value = '';
+  $('iRoomBox').classList.add('hidden');
+  $('itemTitle').textContent = `${first.groupCode} – general item (${all.length} rooms)`;
+  $('iMove').style.display = 'none'; $('iDelete').style.display = ''; $('iDelete').textContent = `Delete all ${all.length}`;
+  $('iMeta').innerHTML = `<b>Changes here go to all ${all.length} rooms</b> (${open.length} open). Status stays per room unless you pick one.<br>` +
+    `Rooms: ${esc(all.map(i => i.room).join(', '))} · ${floors.map(f => esc(floorLabel(f))).join(', ')}`;
+  $('itemModal').classList.remove('hidden');
+}
+function groupFields() {
+  return { trade: $('iTrade').value, description: $('iDesc').value.trim(), assignedTo: $('iAssigned').value.trim(),
+    priority: $('iPriority').value, dueDate: $('iDue').value, notes: $('iNotes').value.trim() };
+}
+async function saveGroupNew() {
+  const f = groupFields();
+  if (!f.description && !S.pendingPhotos.length) { closeModal(); return; } // nothing entered
+  if (!f.description) { toast('Add a description'); $('iDesc').focus(); return; }
+  const rooms = roomsForGroup($('iScope').value);
+  if (!rooms.length) { toast('Choose at least one room'); return; }
+  if (rooms.length > 450) { toast('Up to 450 rooms at a time'); return; }
+  const gid = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), code = nextGroupCode();
+  const status = $('iStatus').value || 'Open';
+  const base = Object.assign(f, { status, number: null, photos: [], groupId: gid, groupCode: code,
+    closedAt: status === 'Closed' ? F.serverTimestamp() : null,
+    createdAt: F.serverTimestamp(), createdBy: meStamp(), updatedAt: F.serverTimestamp(), updatedBy: meStamp() });
+  const b = F.writeBatch(db), ids = [];
+  rooms.forEach(r => {
+    const ref = F.doc(F.collection(db, 'projects', S.pid, 'items')); ids.push(ref.id);
+    b.set(ref, Object.assign({}, base, { floor: r.floor, x: r.x, y: r.y, room: r.room }));
+  });
+  b.commit().catch(err => toast('Not saved: ' + friendly(err), 8000));
+  rooms.forEach(r => markDirty({ floor: r.floor, room: r.room }));
+  store('pcg_trade', f.trade);
+  const newOnes = S.pendingPhotos.slice();
+  closeModal();
+  toast(`${code} added to ${rooms.length} room(s)`);
+  await queuePhotos(newOnes, ids);
+}
+async function saveGroupEdit() {
+  const ed = S.editing, items = groupItems(ed.groupId), f = groupFields();
+  if (!f.description) { toast('Add a description'); $('iDesc').focus(); return; }
+  const ch = {}; Object.keys(f).forEach(k => { if (f[k] !== ed._orig[k]) ch[k] = f[k]; });
+  const st = $('iStatus').value;
+  if (!Object.keys(ch).length && !st && !S.pendingPhotos.length) { closeModal(); return; } // nothing changed
+  if (Object.keys(ch).length || st) {
+    for (let k = 0; k < items.length; k += 450) {
+      const b = F.writeBatch(db);
+      items.slice(k, k + 450).forEach(i => {
+        const u = Object.assign({}, ch, { updatedAt: F.serverTimestamp(), updatedBy: meStamp() });
+        if (st && st !== i.status) { u.status = st; u.closedAt = st === 'Closed' ? F.serverTimestamp() : null; }
+        b.update(F.doc(db, 'projects', S.pid, 'items', i.id), u);
+      });
+      b.commit().catch(err => toast('Not saved: ' + friendly(err), 8000));
+    }
+    items.forEach(markDirty);
+  }
+  if (ch.trade != null) store('pcg_trade', ch.trade);
+  const newOnes = S.pendingPhotos.slice();
+  closeModal();
+  toast(`${ed.groupCode} updated in ${items.length} room(s)`);
+  await queuePhotos(newOnes, items.map(i => i.id));
+}
+
+// Email / print: each general item becomes one row listing its rooms
+function reportRows(items) {
+  const single = [], groups = new Map();
+  items.forEach(i => { if (!i.groupId) single.push(i); else (groups.get(i.groupId) || groups.set(i.groupId, []).get(i.groupId)).push(i); });
+  const gen = [...groups.values()].map(list => {
+    list.sort(byOrd);
+    const f = list[0], open = list.filter(x => x.status !== 'Closed');
+    const room = open.length ? `${open.length} of ${list.length} rooms open: ${open.map(x => x.room).join(', ')}` : `All ${list.length} rooms closed`;
+    return Object.assign({}, f, { _gen: true, room, status: open.length ? 'Open' : 'Closed', _statusText: open.length ? `Open (${open.length}/${list.length})` : 'Closed' });
+  }).sort(byOrd);
+  return { single, gen };
+}
 
 // ---- photo upload queue (IndexedDB) — survives closing the app with no signal
 const PQ = {
@@ -866,8 +1123,18 @@ async function uploadPhoto(e) {
   await F.uploadBytes(F.ref(storage, base + '.jpg'), e.full, { contentType: 'image/jpeg' });
   await F.uploadBytes(F.ref(storage, base + '-thumb.jpg'), e.thumb, { contentType: 'image/jpeg' });
   const [url, thumbUrl] = await Promise.all([F.getDownloadURL(F.ref(storage, base + '.jpg')), F.getDownloadURL(F.ref(storage, base + '-thumb.jpg'))]);
-  await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId),
-    { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) });
+  const ph = { photos: F.arrayUnion({ path: base + '.jpg', url, thumbPath: base + '-thumb.jpg', thumbUrl }) };
+  if (e.itemIds && e.itemIds.length > 1) { // one photo shared by every room of a general item
+    const live = new Set(S.items.map(i => i.id)), ids = e.pid === S.pid ? e.itemIds.filter(id => live.has(id)) : e.itemIds;
+    for (let k = 0; k < ids.length; k += 450) {
+      const b = F.writeBatch(db);
+      ids.slice(k, k + 450).forEach(id => b.update(F.doc(db, 'projects', e.pid, 'items', id), ph));
+      await b.commit();
+    }
+    if (e.pid === S.pid) S.items.filter(i => ids.includes(i.id)).forEach(markDirty);
+    return;
+  }
+  await F.updateDoc(F.doc(db, 'projects', e.pid, 'items', e.itemId), ph);
   const it = S.items.find(x => x.id === e.itemId); if (it && e.pid === S.pid) markDirty(it);
 }
 let pqBusy = false;
@@ -1027,9 +1294,9 @@ function publicDoc(r) {
   const st = settings(), p = project();
   if (!st.publicRooms || r.active === false) return { pid: S.pid, projectName: p.name || '', off: true, log: !!st.logScans };
   const items = S.items.filter(i => i.status !== 'Closed' && i.floor === r.floor && (r.type === 'Floor' || roomMatch(i.room, r.room)))
-    .sort((a, b) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) || (a.number || 1e9) - (b.number || 1e9))
+    .sort((a, b) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) || ord(a) - ord(b))
     .map(i => {
-      const o = { number: i.number == null ? null : i.number, room: i.room || '', trade: i.trade || '', description: i.description || '', status: i.status };
+      const o = { number: i.groupCode || (i.number == null ? null : i.number), room: i.room || '', trade: i.trade || '', description: i.description || '', status: i.status };
       const ph = (i.photos || [])[0];
       if (st.publicPhotos && ph) o.thumbUrl = ph.thumbUrl || ph.url;
       return o;
@@ -1267,7 +1534,7 @@ function fillScope(sel) {
 function scopeItems(v) {
   const items = v === 'filter' ? filtered() : v === 'allopen' ? S.items.filter(i => i.status !== 'Closed')
     : v === 'all' ? S.items.slice() : S.items.filter(i => i.trade === v.slice(6) && i.status !== 'Closed');
-  return items.slice().sort((a, b) => a.floor - b.floor || (a.number || 1e9) - (b.number || 1e9));
+  return items.slice().sort((a, b) => a.floor - b.floor || byOrd(a, b));
 }
 const scopeLabel = v => v.startsWith('trade:') ? ' – ' + v.slice(6) : '';
 
@@ -1290,7 +1557,7 @@ async function planSnapshot(floor, items) {
     const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
     const r = Math.max(12, Math.round(c.width / 140));
     items.forEach(i => {
-      const px = i.x * c.width, py = i.y * c.height, t = String(i.number == null ? '…' : i.number);
+      const px = i.x * c.width, py = i.y * c.height, t = String(numText(i));
       x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fillStyle = COLORS[i.status] || COLORS.Open; x.fill();
       x.lineWidth = Math.max(2, r / 5); x.strokeStyle = '#fff'; x.stroke();
       x.fillStyle = '#fff'; x.font = `bold ${Math.round(r * (t.length > 2 ? 0.9 : 1.1))}px Arial`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(t, px, py + 1);
@@ -1300,6 +1567,9 @@ async function planSnapshot(floor, items) {
 }
 
 // ---- Email
+const mailRow = (i, label) => ({ number: numText(i), floor: i.floor, floorLabel: label, room: i.room, trade: i.trade,
+  description: i.description, notes: i.notes, assignedTo: i.assignedTo, priority: i.priority, dueDate: i.dueDate, status: i.status,
+  photos: (i.photos || []).map(p => p.thumbUrl || p.url) });
 const tradeEmail = t => { try { return JSON.parse(store('pcg_tradeEmails') || '{}')[S.pid + '|' + t] || ''; } catch (e) { return ''; } };
 function rememberTradeEmail(t, to) {
   try { const m = JSON.parse(store('pcg_tradeEmails') || '{}'); m[S.pid + '|' + t] = to; store('pcg_tradeEmails', JSON.stringify(m)); } catch (e) {}
@@ -1322,19 +1592,17 @@ $('mSend').onclick = async () => {
   if (!to) { toast('Enter an email address'); return; }
   const btn = $('mSend'); btn.disabled = true; btn.textContent = 'Preparing…'; S.planErr = '';
   try {
-    const plans = [];
+    const plans = [], { single, gen } = reportRows(items);
     let noPlans = false;
-    if ($('mPlans').checked) for (const fl of [...new Set(items.map(i => i.floor))].sort((a, b) => a - b)) {
-      const data = await planSnapshot(fl, items.filter(i => i.floor === fl));
+    if ($('mPlans').checked) for (const fl of [...new Set(single.map(i => i.floor))].sort((a, b) => a - b)) {
+      const data = await planSnapshot(fl, single.filter(i => i.floor === fl));
       if (data) plans.push({ floor: fl, label: floorLabel(fl), data }); else noPlans = true;
     }
     btn.textContent = 'Sending…';
     const body = {
       idToken: await S.user.getIdToken(), to, subject: $('mSubject').value, note: $('mNote').value,
       projectName: project().name || '', includePhotos: $('mPhotos').checked, plans,
-      items: items.map(i => ({ number: i.number, floor: i.floor, floorLabel: floorLabel(i.floor), room: i.room, trade: i.trade,
-        description: i.description, notes: i.notes, assignedTo: i.assignedTo, priority: i.priority, dueDate: i.dueDate, status: i.status,
-        photos: (i.photos || []).map(p => p.thumbUrl || p.url) }))
+      items: single.map(i => mailRow(i, floorLabel(i.floor))).concat(gen.map(i => Object.assign(mailRow(i, 'General items (several rooms)'), { floor: 999, status: i._statusText })))
     };
     const resp = await fetch(window.PCG_CONFIG.MAILER_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
     const out = await resp.json().catch(() => ({ ok: false, error: 'The mailer sent an unexpected reply — check its deployment.' }));
@@ -1368,23 +1636,26 @@ $('prGo').onclick = async () => {
   try {
     const withPlans = $('prPlans').checked, withPhotos = $('prPhotos').checked, now = new Date();
     const statuses = ['Open', 'In Progress', 'Ready for Review', 'Closed'];
+    const { single, gen } = reportRows(items);
     const floors = [...new Set(items.map(i => i.floor))].sort((a, b) => a - b);
     const dot = s => `<span class="pr-dot" style="background:${COLORS[s] || COLORS.Open}"></span>`;
-    let html = `<div class="pr-head"><h1>${esc($('prTitle').value)}</h1><div>${now.toLocaleDateString()} · ${items.length} item(s) · prepared by ${esc(S.me.name || '')} · Perimeter Construction Group</div></div>`;
+    let html = `<div class="pr-head"><h1>${esc($('prTitle').value)}</h1><div>${now.toLocaleDateString()} · ${single.length + gen.length} item(s)${gen.length ? ` (${gen.length} general, in ${items.length - single.length} rooms)` : ''} · prepared by ${esc(S.me.name || '')} · Perimeter Construction Group</div></div>`;
     html += '<table class="pr-sum"><tr><th>Floor</th>' + statuses.map(s => `<th>${dot(s)}${s}</th>`).join('') + '<th>Total</th></tr>' +
       floors.map(f => { const fi = items.filter(i => i.floor === f); return `<tr><td>${esc(floorLabel(f))}</td>` + statuses.map(s => `<td>${fi.filter(i => i.status === s).length || ''}</td>`).join('') + `<td><b>${fi.length}</b></td></tr>`; }).join('') +
       `<tr><td><b>Total</b></td>` + statuses.map(s => `<td><b>${items.filter(i => i.status === s).length || ''}</b></td>`).join('') + `<td><b>${items.length}</b></td></tr></table>`;
-    floors.forEach(f => {
-      const fi = items.filter(i => i.floor === f), fl = S.floors.find(x => x.n === f) || {};
+    const row = i => `<tr><td><b>${esc(numText(i))}</b></td><td>${esc(i.room)}</td><td>${esc(i.trade)}</td>
+          <td>${esc(i.description)}${i.notes ? '<br><i>' + esc(i.notes) + '</i>' : ''}</td><td>${esc(i.assignedTo)}</td><td>${esc(i.priority)}</td><td>${esc(i.dueDate)}</td>
+          <td>${dot(i.status)}${esc(i._statusText || i.status)}</td>${withPhotos ? '<td>' + (i.photos || []).map(p => `<img class="pr-ph" src="${esc(p.thumbUrl || p.url)}" alt="">`).join('') + '</td>' : ''}</tr>`;
+    const head = `<tr><th>#</th><th>Room</th><th>Trade</th><th>Description</th><th>Assigned</th><th>Priority</th><th>Due</th><th>Status</th>${withPhotos ? '<th>Photos</th>' : ''}</tr>`;
+    floors.filter(f => single.some(i => i.floor === f)).forEach(f => {
+      const fi = single.filter(i => i.floor === f), fl = S.floors.find(x => x.n === f) || {};
       html += `<div class="pr-floor"><h2>${esc(floorLabel(f))} — ${fi.length} item(s)</h2>`;
       const plan = withPlans && fl.planUrl;
       if (plan) html += `<div class="pr-planbox"><img src="${esc(fl.planUrl)}" alt="">` + fi.map(i =>
-        `<div class="pr-pin" style="left:${i.x * 100}%;top:${i.y * 100}%;background:${COLORS[i.status] || COLORS.Open}">${esc(i.number == null ? '…' : i.number)}</div>`).join('') + '</div>';
-      html += `<table class="pr-tbl${plan ? ' brk' : ''}"><tr><th>#</th><th>Room</th><th>Trade</th><th>Description</th><th>Assigned</th><th>Priority</th><th>Due</th><th>Status</th>${withPhotos ? '<th>Photos</th>' : ''}</tr>` +
-        fi.map(i => `<tr><td><b>${esc(i.number == null ? '…' : i.number)}</b></td><td>${esc(i.room)}</td><td>${esc(i.trade)}</td>
-          <td>${esc(i.description)}${i.notes ? '<br><i>' + esc(i.notes) + '</i>' : ''}</td><td>${esc(i.assignedTo)}</td><td>${esc(i.priority)}</td><td>${esc(i.dueDate)}</td>
-          <td>${dot(i.status)}${esc(i.status)}</td>${withPhotos ? '<td>' + (i.photos || []).map(p => `<img class="pr-ph" src="${esc(p.thumbUrl || p.url)}" alt="">`).join('') + '</td>' : ''}</tr>`).join('') + '</table></div>';
+        `<div class="pr-pin" style="left:${i.x * 100}%;top:${i.y * 100}%;background:${COLORS[i.status] || COLORS.Open}">${esc(numText(i))}</div>`).join('') + '</div>';
+      html += `<table class="pr-tbl${plan ? ' brk' : ''}">${head}` + fi.map(row).join('') + '</table></div>';
     });
+    if (gen.length) html += `<div class="pr-floor"><h2>General items — ${gen.length} item(s), several rooms each</h2><table class="pr-tbl">${head}` + gen.map(row).join('') + '</table></div>';
     html += `<div class="pr-foot">Generated ${now.toLocaleString()} · PCG Punch ${VERSION}</div>`;
     const area = $('printArea'); area.className = 'report'; area.innerHTML = html;
     btn.textContent = 'Loading images…';
@@ -1424,14 +1695,14 @@ $('fwBuild').onclick = () => {
   const rows = items.map(i => {
     const fl = S.floors.find(x => x.n === i.floor) || {}, plan = fl.fwPlan || '';
     if (!plan) noPlan.add(fl.label || 'Level ' + i.floor);
-    let title = clean(`PL-${i.number == null ? '?' : i.number} ${i.room ? i.room + ' - ' : ''}${i.trade ? i.trade + ': ' : ''}${i.description}`);
+    let title = clean(`PL-${i.groupCode || (i.number == null ? '?' : i.number)} ${i.room ? i.room + ' - ' : ''}${i.trade ? i.trade + ': ' : ''}${i.description}`);
     if (title.length > 120) title = title.slice(0, 117) + '...';
     const desc = [clean(i.description)];
     if (i.notes) desc.push('Notes: ' + clean(i.notes));
     if (i.assignedTo && !isEmail(i.assignedTo)) desc.push('Assigned to: ' + clean(i.assignedTo));
     desc.push('Priority: ' + (i.priority || 'Medium'));
     if ((i.photos || []).length) desc.push('Photos: ' + i.photos.map(p => p.url).join(' '));
-    desc.push(`Punch #${i.number == null ? '?' : i.number} (${floorLabel(i.floor)})`);
+    desc.push(`Punch #${i.groupCode ? i.groupCode + ' (general item)' : i.number == null ? '?' : i.number} (${floorLabel(i.floor)})`);
     const tags = [tag, TRADE_TAGS[i.trade], 'level_' + i.floor].filter(Boolean).map(t => '#' + t);
     return [title, FW_STATUS[i.status] || 'Sent', cat, isEmail(i.assignedTo) ? i.assignedTo.trim() : '', day(i.createdAt), i.dueDate || '',
       plan, plan ? Math.round(i.x * 1000) / 10 : '', plan ? Math.round(i.y * 1000) / 10 : '', '', '', '', '', '', '', '',

@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.5.9">
-<script src="config.js?v=0.5.9"></script>
+<link rel="stylesheet" href="style.css?v=0.6.0">
+<script src="config.js?v=0.6.0"></script>
 </head>
 <body>
 
@@ -92,6 +92,7 @@
     <nav id="floorTabs"></nav>
     <div class="actions">
       <button id="addBtn" class="primary crew-only">+ Tag</button>
+      <button id="genBtn" class="crew-only" title="One item for many rooms">+ General</button>
       <button id="listBtn">List</button>
       <button id="mailBtn" class="crew-only">Email</button>
       <button id="printBtn">Print / PDF</button>
@@ -112,12 +113,14 @@
     <aside id="panel">
       <div class="filters">
         <div id="roomChip" class="hidden"><b id="roomChipText"></b><button id="roomChipX">Show all rooms</button></div>
+        <div id="groupChip" class="hidden"><b id="groupChipText"></b><button id="groupEdit" class="crew-only">Edit all</button><button id="groupChipX">Show all</button></div>
         <input type="search" id="fSearch" placeholder="Search # / room / description / assigned">
         <select id="fStatus"><option value="active">Not closed</option><option value="">All statuses</option>
           <option>Open</option><option>In Progress</option><option>Ready for Review</option><option>Closed</option></select>
         <select id="fTrade"><option value="">All trades</option></select>
         <label class="chk"><input type="checkbox" id="fFloor" checked> This floor only</label>
         <label class="chk"><input type="checkbox" id="fMine"> Assigned to me</label>
+        <label class="chk"><input type="checkbox" id="fGen" checked> General items</label>
         <div class="counts" id="counts"></div>
       </div>
       <div id="list"></div>
@@ -269,8 +272,10 @@
 <div class="modal hidden" id="itemModal"><div class="card">
   <h3 id="itemTitle">New tag</h3>
   <div class="grid">
-    <div><label>Room / area<input id="iRoom" list="roomList" placeholder="e.g. 214, Corridor, Laundry"></label><datalist id="roomList"></datalist></div>
+    <div id="iRoomBox"><label>Room / area<input id="iRoom" list="roomList" placeholder="e.g. 214, Corridor, Laundry"></label><datalist id="roomList"></datalist></div>
     <div><label>Trade<select id="iTrade"></select></label></div>
+    <div class="full hidden" id="iGroupBox"><label>Applies to<select id="iScope"></select></label>
+      <div id="iPick" class="pick hidden"></div><div class="meta" id="iScopeCount"></div></div>
     <div class="full"><label>Description<textarea id="iDesc" rows="3" placeholder="What needs to be fixed"></textarea></label></div>
     <div><label>Assigned to<input id="iAssigned" list="assignList"></label><datalist id="assignList"></datalist></div>
     <div><label>Priority<select id="iPriority"><option>Low</option><option selected>Medium</option><option>High</option></select></label></div>
@@ -285,12 +290,12 @@
     <button class="primary crew-only" id="iSave">Save</button>
     <button class="crew-only" id="iMove">Move tag</button>
     <button class="danger admin-only" id="iDelete">Delete</button>
-    <span class="sp"></span><button id="iCancel">Close</button>
+    <span class="sp"></span><button id="iCancel" class="viewer-only">Close</button>
   </div>
 </div></div>
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.5.9"></script>
+<script type="module" src="app.js?v=0.6.0"></script>
 </body>
 </html>

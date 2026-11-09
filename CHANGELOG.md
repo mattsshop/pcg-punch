@@ -1,5 +1,15 @@
 # PCG Punch changelog
 
+## v0.6.0 (2026-11-09) General items, Save-only item window
+- **Item window has only Save** (no Close) for Crew and Admin. Save with nothing changed just closes; a new tag saved with no description is dropped. Viewers, who can't save, still get Close.
+- **+ General:** one item for many rooms. Choose all guest rooms, guest rooms on one floor, common / BOH areas, every room, or pick rooms (with All / None per floor). Each room gets its own copy at that room's spot on the plan, so rooms are closed one by one and show on their QR page. Copies share a code (G1, G2…) and don't use up regular item numbers.
+- In the list a general item is **one row** ("G1 · 87 of 122 open"). Tap it to see each room; **Edit all** changes description, trade, assigned, priority, due date, notes (and status if you pick one) in every room, adds photos to every room, or deletes the item from all rooms (Admin).
+- A room's copy says which general item it belongs to, with a link to edit all rooms. Changes there are for that room only.
+- New **General items** filter checkbox hides them from the list and plan.
+- **Email and Print / PDF** show each general item once, listing the rooms still open, in a "General items" section after the floors. Fieldwire export still makes one task per room (titled PL-G1 …).
+- Photos shared by a general item's rooms are only deleted when no room uses them any more.
+- Rooms must be placed on the plans (Rooms & QR) to receive general items.
+
 ## v0.5.11 (2026-11-08)
 - Mailer back to sending from matt@mattsshop.com (no alias) until an alias is set up. Mailer-only change.
 

@@ -185,3 +185,19 @@ details.adj summary{cursor:pointer;color:var(--acc)}
   .pr-ph{width:1.3in;height:1in;object-fit:cover;margin:1px;border:1px solid #ccc}
   .pr-foot{margin-top:8px;color:#555;font-size:10px}
 }
+
+/* v0.6.0 general items */
+body:not(.role-Viewer) .viewer-only{display:none!important}
+#groupChip{grid-column:1/3;display:flex;background:#ede7f6;color:#4527a0;border-radius:14px;padding:5px 10px;font-size:13px;align-items:center;gap:8px}
+#groupChip.hidden{display:none}
+#groupChip b{flex:1}
+#groupChip button{padding:2px 8px;font-size:12px}
+.row .num.g{background:#5e35b1;font-size:12px}
+.pin.gen{border:2px solid #5e35b1}
+.pin.gen span{font-size:9px}
+.pick{max-height:220px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;margin-top:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:2px 8px}
+.pick.hidden,#iGroupBox.hidden{display:none}
+.pick .fl{grid-column:1/-1;font-weight:700;font-size:12px;margin-top:4px;display:flex;gap:8px;align-items:center}
+.pick .fl button{padding:1px 6px;font-size:11px}
+.pick label{font-size:13px;display:flex;gap:6px;align-items:center;justify-content:flex-start;margin:0}
+.pick label input{width:auto;margin:0;flex:none}
