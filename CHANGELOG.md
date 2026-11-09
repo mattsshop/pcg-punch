@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.5.11 (2026-11-08)
+- Mailer back to sending from matt@mattsshop.com (no alias) until an alias is set up. Mailer-only change.
+
 ## v0.5.10 (2026-11-08)
 - Mailer alias changed to **pcgpunch@gmail.com** (a "Send mail as" address on matt@mattsshop.com). Mailer-only change; the app is unchanged.
 
