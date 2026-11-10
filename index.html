@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.6.1">
-<script src="config.js?v=0.6.1"></script>
+<link rel="stylesheet" href="style.css?v=0.6.2">
+<script src="config.js?v=0.6.2"></script>
 </head>
 <body>
 
@@ -99,7 +99,8 @@
       <button id="fwBtn" class="crew-only">Fieldwire</button>
       <button id="plansBtn" class="admin-only">Plans</button>
       <button id="projBtn" class="admin-only">Projects</button>
-      <button id="roomsBtn" class="admin-only">Rooms &amp; QR</button>
+      <button id="roomsBtn" class="admin-only">Rooms</button>
+      <button id="qrBtn" class="admin-only">QR codes</button>
       <button id="usersBtn" class="admin-only">Users<span id="pendBadge"></span></button>
     </div>
   </header>
@@ -151,7 +152,7 @@
 
 <!-- Rooms & QR (Admin) -->
 <div class="modal hidden" id="roomsModal"><div class="card" style="width:820px">
-  <h3>Rooms &amp; QR — <span id="rmProj"></span></h3>
+  <h3>Rooms — <span id="rmProj"></span></h3>
   <div class="setgrid">
     <label class="chk"><input type="checkbox" data-set="publicRooms"> Anyone who scans a room QR sees its open items (read-only)</label>
     <label class="chk"><input type="checkbox" data-set="publicPhotos"> Show one photo per item on those pages</label>
@@ -159,7 +160,6 @@
     <label class="chk"><input type="checkbox" data-set="autoRoom"> New tags fill in the nearest room</label>
   </div>
   <div class="btns" style="margin-top:8px">
-    <button class="primary" id="qrOpen">Print QR labels</button>
     <button id="rmPublish">Refresh public pages</button>
     <span class="sp"></span>
     <select id="rmSeed" style="width:auto"></select><button id="rmLoadSeed">Load rooms</button>
@@ -296,6 +296,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.6.1"></script>
+<script type="module" src="app.js?v=0.6.2"></script>
 </body>
 </html>

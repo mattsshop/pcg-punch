@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.2 (2026-11-10)
+- **Rooms** and **QR codes** are now separate buttons (Admin). **QR codes** opens straight to label making; **Rooms** has the room list, placing rooms and the QR page settings.
+
 ## v0.6.1 (2026-11-10)
 - **Delete all** button on the purple general-item bar (Admin): tap a general item's row, then Delete all removes it from every room in one step, with its photos. (Still also in Edit all.)
 

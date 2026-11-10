@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.1';
+const VERSION = 'v0.6.2';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -988,7 +988,7 @@ function scopeChanged() {
   const v = $('iScope').value, rs = roomsForGroup(v);
   $('iPick').classList.toggle('hidden', v !== 'pick');
   const unplaced = (S.rooms || []).filter(r => r.type !== 'Floor' && r.active !== false && r.x == null).length;
-  $('iScopeCount').textContent = `${rs.length} room(s) will each get a copy` + (unplaced ? ` · ${unplaced} room(s) not placed on a plan are left out (Rooms & QR → Place)` : '');
+  $('iScopeCount').textContent = `${rs.length} room(s) will each get a copy` + (unplaced ? ` · ${unplaced} room(s) not placed on a plan are left out (Rooms → Place)` : '');
 }
 $('iScope').onchange = scopeChanged;
 $('iPick').addEventListener('change', e => {
@@ -1005,7 +1005,7 @@ $('iPick').addEventListener('click', e => {
 
 $('genBtn').onclick = () => {
   if (!S.pid) { toast('Create a project first'); return; }
-  if (!groupRooms().length) { toast('Add rooms first: Rooms & QR → load the room list, then place them on the plans.', 7000); return; }
+  if (!groupRooms().length) { toast('Add rooms first: Rooms → load the room list, then place them on the plans.', 7000); return; }
   resetItemWindow();
   S.pick = new Set();
   S.editing = { _mode: 'gnew', floor: S.floor, status: 'Open', priority: 'Medium', photos: [] };
@@ -1417,7 +1417,9 @@ $('rmAddBtn').onclick = async () => {
 // ---- QR labels
 const AVERY = { top: 0.625, left: 0.625, px: 2.625, py: 2.5 };
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-$('qrOpen').onclick = () => {
+$('qrBtn').onclick = () => {
+  if (!S.pid) { toast('Create a project first'); return; }
+  if (!(S.rooms || []).some(r => r.active !== false)) { toast('No rooms yet: open Rooms and load or add the room list first.', 7000); return; }
   const a = Object.assign({}, AVERY); try { Object.assign(a, JSON.parse(store('pcg_avery') || '{}')); } catch (e) {}
   $('qTop').value = a.top; $('qLeft').value = a.left; $('qPx').value = a.px; $('qPy').value = a.py;
   $('qOut').innerHTML = ''; $('qStrip').classList.add('hidden');
