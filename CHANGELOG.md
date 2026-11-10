@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.3 (2026-11-10)
+- On phones and tablets the item window has two photo buttons: **📷 Camera** opens the camera directly, **🖼 Photos** picks from the phone. Newer Android phones' photo picker doesn't offer the camera, so the camera needed its own button. Computers keep a single **+ Photo**.
+
 ## v0.6.2 (2026-11-10)
 - **Rooms** and **QR codes** are now separate buttons (Admin). **QR codes** opens straight to label making; **Rooms** has the room list, placing rooms and the QR page settings.
 

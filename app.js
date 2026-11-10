@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.2';
+const VERSION = 'v0.6.3';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -769,11 +769,13 @@ function renderPhotos() {
   let html = S.keptPhotos.map((p, i) => `<div class="ph"><img src="${esc(p.thumbUrl || p.url)}" data-full="${esc(p.url)}" alt="">${rm ? `<button data-rm="${i}">×</button>` : ''}</div>`).join('');
   html += queued.map(u => `<div class="ph queued" title="Uploading when there is signal"><img src="${u}" data-full="${u}" alt=""></div>`).join('');
   html += S.pendingPhotos.map((p, i) => `<div class="ph"><img src="${p.preview}" data-full="${p.preview}" alt=""><button data-rmnew="${i}">×</button></div>`).join('');
-  if (edit) html += '<div class="addph" id="addPh">+ Photo</div>';
+  // Phones get a separate Camera button: newer Android photo pickers don't offer the camera on their own
+  if (edit) html += (TOUCH ? '<div class="addph" id="addCam">📷<br>Camera</div>' : '') + `<div class="addph" id="addPh">${TOUCH ? '🖼<br>Photos' : '+ Photo'}</div>`;
   box.innerHTML = html;
 }
 $('iPhotos').addEventListener('click', e => {
-  if (e.target.id === 'addPh') { $('iFile').click(); return; }
+  if (e.target.closest('#addPh')) { $('iFile').click(); return; }
+  if (e.target.closest('#addCam')) { $('iCam').click(); return; }
   if (e.target.dataset.rm != null) { S.keptPhotos.splice(Number(e.target.dataset.rm), 1); renderPhotos(); return; }
   if (e.target.dataset.rmnew != null) { S.pendingPhotos.splice(Number(e.target.dataset.rmnew), 1); renderPhotos(); return; }
   if (e.target.tagName === 'IMG') { $('lightbox').querySelector('img').src = e.target.dataset.full || e.target.src; $('lightbox').classList.remove('hidden'); }
@@ -792,7 +794,10 @@ function resizeImage(file, max, q) {
     img.onerror = () => rej(new Error('Could not read photo')); img.src = url;
   });
 }
-$('iFile').addEventListener('change', async e => {
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+$('iCam').addEventListener('change', e => addPhotoFiles(e));
+$('iFile').addEventListener('change', e => addPhotoFiles(e));
+async function addPhotoFiles(e) {
   for (const f of e.target.files) {
     try {
       const full = await resizeImage(f, 1600, 0.8), thumb = await resizeImage(f, 400, 0.7);
@@ -800,7 +805,7 @@ $('iFile').addEventListener('change', async e => {
     } catch (err) { toast(err.message); }
   }
   e.target.value = ''; renderPhotos();
-});
+}
 
 // Save: written to the phone first (works with no signal), then synced by Firestore.
 $('iSave').onclick = async () => {

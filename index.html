@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.6.2">
-<script src="config.js?v=0.6.2"></script>
+<link rel="stylesheet" href="style.css?v=0.6.3">
+<script src="config.js?v=0.6.3"></script>
 </head>
 <body>
 
@@ -283,7 +283,7 @@
     <div><label>Status<select id="iStatus"><option>Open</option><option>In Progress</option><option>Ready for Review</option><option>Closed</option></select></label></div>
     <div class="full"><label>Notes<textarea id="iNotes" rows="2"></textarea></label></div>
     <div class="full"><label>Photos</label><div class="photos" id="iPhotos"></div>
-      <input type="file" id="iFile" accept="image/*" multiple hidden></div>
+      <input type="file" id="iFile" accept="image/*" multiple hidden><input type="file" id="iCam" accept="image/*" capture="environment" hidden></div>
   </div>
   <div class="meta" id="iMeta"></div>
   <div class="btns">
@@ -296,6 +296,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.6.2"></script>
+<script type="module" src="app.js?v=0.6.3"></script>
 </body>
 </html>
