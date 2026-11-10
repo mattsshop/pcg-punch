@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.7';
+const VERSION = 'v0.6.8';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1525,7 +1525,8 @@ function labelCanvas(r, w, h) {
   y += h * 0.065; fitText(sub, w - 2 * pad, h * 0.052, 'normal'); x.fillText(sub, w / 2, y);
   const foot = String(project().name || '').replace(/\s+Suites\b/i, '') + ' · scan for punch list';
   const footH = h * 0.06, qrTop = y + h * 0.012, side = Math.min(w - 2 * pad * 0.4, h - qrTop - footH - pad * 0.6);
-  QR.draw(x, QR.encode(SITE_URL + '?r=' + r.code + (r.trade ? '&t=' + encodeURIComponent(r.trade) : ''), 'M'), Math.round((w - side) / 2), Math.round(qrTop), Math.round(side));
+  const room = h - qrTop - footH - pad * 0.6, top = qrTop + Math.max(0, (room - side) / 2); // tall labels: QR centered in the space
+  QR.draw(x, QR.encode(SITE_URL + '?r=' + r.code + (r.trade ? '&t=' + encodeURIComponent(r.trade) : ''), 'M'), Math.round((w - side) / 2), Math.round(top), Math.round(side));
   fitText(foot, w - 2 * pad, h * 0.042, 'normal'); x.fillText(foot, w / 2, h - pad * 0.7);
   return c;
 }

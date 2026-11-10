@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.8 (2026-11-10)
+- Label PDF: added **50 × 80 mm (tall)**. On tall labels the QR code sits centered between the room name and the footer.
+
 ## v0.6.7 (2026-11-10)
 - **QR codes → Print on: "Label PDF, one label per page"**: makes a PDF sized to the label (50 × 50 mm by default; also 40 × 40, 2" × 2", 50 × 30, 40 × 30 mm), one label per page, for any set of labels. For Print Master on iPhone: **Share PDF → Save to Files**, then import it in Print Master from Files. Computers get a Download button. The size you pick is remembered.
 
