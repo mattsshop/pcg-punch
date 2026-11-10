@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.5 (2026-11-10)
+- **Share QR labels to a printer app.** On phones and tablets, with "Single label images", tapping a label opens the share menu: pick **Phomemo** (or another label printer app) and print. No saving to photos first. "Download as one strip" also shares when it's 30 labels or fewer. Phones that can't share keep the old save-and-print way.
+
 ## v0.6.4 (2026-11-10) Trade QR codes
 - **QR codes → "Project office: one label, pick your trade"** makes a single label for the project office. Scanning it shows "Punch list by trade": every trade with open items and how many; tap a trade to see its open items by floor and room (general items once, with the rooms still open). No sign-in needed, like room labels.
 - **QR codes → "One label per trade"** makes a label for each trade that opens straight on that trade.

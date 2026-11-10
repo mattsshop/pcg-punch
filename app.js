@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.4';
+const VERSION = 'v0.6.5';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1553,7 +1553,8 @@ $('qGo').onclick = async () => {
       setTimeout(() => window.print(), 250);
     } else {
       S.labelImgs = rooms.map(r => ({ r, url: labelCanvas(r, 384, 448).toDataURL('image/png') }));
-      $('qOut').innerHTML = '<div class="meta">Tap a label to open it, then save it (long-press on a phone or iPad) and print it from your label printer\'s app.</div><div class="lblgrid">' +
+      $('qOut').innerHTML = (CAN_SHARE ? '<div class="meta">Tap a label, then pick your label printer\'s app (e.g. <b>Phomemo</b>) in the share menu and print.</div>'
+        : '<div class="meta">Tap a label to open it, then save it (long-press on a phone or iPad) and print it from your label printer\'s app.</div>') + '<div class="lblgrid">' +
         S.labelImgs.map((l, i) => `<figure><a href="${l.url}" download="${l.r.type === 'Trades' ? 'Trade' : 'Room'}_${esc(l.r.room).replace(/[^\w-]+/g, '_')}.png" data-i="${i}"><img src="${l.url}" alt=""></a>${esc(l.r.room)}</figure>`).join('') + '</div>';
       $('qStrip').classList.remove('hidden');
     }
@@ -1561,8 +1562,22 @@ $('qGo').onclick = async () => {
   finally { btn.disabled = false; btn.textContent = 'Build labels'; }
 };
 addEventListener('afterprint', () => { $('printArea').innerHTML = ''; });
+// Share a label straight to a printer app (Phomemo etc.) through the phone's share menu
+function pngFile(dataUrl, name) {
+  const bin = atob(dataUrl.split(',')[1]), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new File([u], name, { type: 'image/png' });
+}
+const CAN_SHARE = (() => { try { return TOUCH && !!navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(1)], 'x.png', { type: 'image/png' })] }); } catch (e) { return false; } })();
 $('qOut').addEventListener('click', e => {
-  const a = e.target.closest('a[data-i]'); if (!a || !IOS) return;
+  const a = e.target.closest('a[data-i]'); if (!a) return;
+  if (CAN_SHARE) {
+    e.preventDefault();
+    const f = pngFile(a.getAttribute('href'), a.getAttribute('download'));
+    navigator.share({ files: [f] }).catch(err => { if (err.name !== 'AbortError') toast('Could not share: ' + err.message, 6000); });
+    return;
+  }
+  if (!IOS) return;
   e.preventDefault(); $('lightbox').querySelector('img').src = a.getAttribute('href'); $('lightbox').classList.remove('hidden');
 });
 // One tall image per 30 labels with cut lines — label-printer apps can print it in one go.
@@ -1578,6 +1593,10 @@ $('qStrip').onclick = async () => {
       x.setLineDash([8, 8]); x.beginPath(); x.moveTo(0, i * (448 + gap) + 448 + gap / 2); x.lineTo(384, i * (448 + gap) + 448 + gap / 2); x.stroke();
     }
     const url = c.toDataURL('image/png');
+    if (CAN_SHARE && L.length <= per) { // one strip: share it straight to the printer app
+      try { await navigator.share({ files: [pngFile(url, 'QR_labels.png')] }); continue; }
+      catch (err) { if (err.name === 'AbortError') continue; } // otherwise (e.g. phone says the tap was too long ago) save it as before
+    }
     if (IOS) { $('lightbox').querySelector('img').src = url; $('lightbox').classList.remove('hidden'); }
     else { const a = document.createElement('a'); a.href = url; a.download = `QR_labels_${k + 1}-${k + part.length}.png`; document.body.appendChild(a); a.click(); a.remove(); }
   }
