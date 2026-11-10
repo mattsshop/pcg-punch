@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.6 (2026-11-10)
+- Shared QR labels are sent as JPEG instead of PNG: Phomemo opened from a shared PNG but didn't load the picture.
+
 ## v0.6.5 (2026-11-10)
 - **Share QR labels to a printer app.** On phones and tablets, with "Single label images", tapping a label opens the share menu: pick **Phomemo** (or another label printer app) and print. No saving to photos first. "Download as one strip" also shares when it's 30 labels or fewer. Phones that can't share keep the old save-and-print way.
 
