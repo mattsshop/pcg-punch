@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.6.3">
-<script src="config.js?v=0.6.3"></script>
+<link rel="stylesheet" href="style.css?v=0.6.4">
+<script src="config.js?v=0.6.4"></script>
 </head>
 <body>
 
@@ -184,7 +184,8 @@
     <div class="full"><label>Which labels<select id="qWhich">
       <option value="all">Every room + one per floor</option><option value="guest">Guest rooms only</option>
       <option value="common">Common / back-of-house areas</option><option value="floors">One per floor only</option>
-      <option value="floor">The floor shown in the app</option><option value="list">Only these rooms…</option></select></label></div>
+      <option value="floor">The floor shown in the app</option><option value="list">Only these rooms…</option>
+      <option value="office">Project office: one label, pick your trade</option><option value="trades">One label per trade</option></select></label></div>
     <div class="full hidden" id="qListWrap"><label>Rooms (comma separated, ranges OK)<input id="qList" placeholder="214, 215, 301-310, Level 2"></label></div>
     <div class="full"><label>Print on<select id="qFormat">
       <option value="avery">Avery 2" × 2" sheet labels (22806 – 12 per sheet)</option>
@@ -296,6 +297,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.6.3"></script>
+<script type="module" src="app.js?v=0.6.4"></script>
 </body>
 </html>

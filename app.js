@@ -3,12 +3,13 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.3';
+const VERSION = 'v0.6.4';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
 const QS = new URLSearchParams(location.search);
 const ROOM_CODE = (QS.get('r') || '').replace(/[^\w-]/g, '').slice(0, 40); // from a scanned QR label
+const TRADE_PICK = (QS.get('t') || '').slice(0, 60); // trade QR label: open on this trade
 const SITE_URL = location.origin + location.pathname.replace(/index\.html$/, '');
 
 const $ = id => document.getElementById(id);
@@ -1255,6 +1256,13 @@ async function openScan() {
     if (!snap.exists()) { toast('That QR code is not set up yet — ask the project manager.', 6000); return; }
     const p = snap.data();
     logScan(ROOM_CODE, S.user.uid, p.log);
+    if (p.type === 'Trades') { // project-office trade board: open the whole list, on the trade if the label names one
+      if (p.pid !== S.pid) selectProject(p.pid);
+      $('fFloor').checked = false; $('fStatus').value = '';
+      if (TRADE_PICK && [...$('fTrade').options].some(o => o.value === TRADE_PICK)) $('fTrade').value = TRADE_PICK;
+      renderList(); renderPins(); if (innerWidth <= 800) $('panel').classList.add('open');
+      return;
+    }
     S.scanWant = { pid: p.pid, code: ROOM_CODE };
     if (p.pid !== S.pid) selectProject(p.pid);
     else { const r = (S.rooms || []).find(x => x.code === ROOM_CODE); if (r) { S.scanWant = null; setRoomFilter(r, true); } }
@@ -1274,6 +1282,7 @@ async function showPublic() {
     return;
   }
   logScan(ROOM_CODE, null, p.log);
+  if (p.type === 'Trades') { showTradeBoard(p); return; }
   const isFloor = p.type === 'Floor';
   $('pubRoom').textContent = isFloor ? p.floorLabel : 'Room ' + p.room;
   $('pubSub').textContent = isFloor ? 'Open punch items on this floor' : [p.name, p.floorLabel].filter(Boolean).join(' · ');
@@ -1289,12 +1298,43 @@ async function showPublic() {
   } else $('pubList').innerHTML = `<div class="meta" style="margin-bottom:6px">${items.length} open item(s)</div>` + items.map(card).join('');
 }
 
+// Project-office board: tap your trade to see its open items, by floor and room
+function showTradeBoard(p) {
+  const items = p.items || [], byT = {};
+  items.forEach(i => (byT[i.trade || 'Other'] = byT[i.trade || 'Other'] || []).push(i));
+  const card = i => `<div class="pub-card">${i.thumbUrl ? `<img src="${esc(i.thumbUrl)}" alt="">` : ''}<div>
+    <div class="t">#${esc(i.number == null ? '…' : i.number)}${i.room ? ' · ' + esc(i.room) : ''}</div>
+    <div class="d">${esc(i.description)}</div>${i.rooms ? `<div class="meta">${esc(i.rooms)}</div>` : ''}<span class="stp ${STATUS_CLS(i.status)}">${esc(i.status)}</span></div></div>`;
+  const list = t => {
+    const its = byT[t] || [];
+    $('pubRoom').textContent = t; $('pubSub').textContent = `${its.length} open item(s)`;
+    const g = {}; its.forEach(i => (g[i.floorLabel || 'General'] = g[i.floorLabel || 'General'] || []).push(i));
+    $('pubList').innerHTML = '<button id="pubBack" style="margin-bottom:8px">‹ All trades</button>' +
+      (its.length ? Object.keys(g).map(k => `<div class="pub-room">${esc(k)} — ${g[k].length}</div>` + g[k].map(card).join('')).join('')
+        : '<div class="pub-card"><div class="t">No open punch items for this trade.</div></div>');
+    $('pubBack').onclick = board; scrollTo(0, 0);
+  };
+  const board = () => {
+    $('pubRoom').textContent = 'Punch list by trade'; $('pubSub').textContent = 'Tap your trade';
+    const ts = Object.keys(byT).sort((a, b) => a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b));
+    $('pubList').innerHTML = ts.length ? '<div class="tradegrid">' + ts.map(t => `<button data-t="${esc(t)}"><b>${esc(t)}</b><span>${byT[t].length} open</span></button>`).join('') + '</div>'
+      : '<div class="pub-card"><div class="t">No open punch items.</div></div>';
+    $('pubList').querySelectorAll('[data-t]').forEach(b => b.onclick = () => list(b.dataset.t));
+  };
+  if (TRADE_PICK && byT[TRADE_PICK]) list(TRADE_PICK); else if (TRADE_PICK) { list(TRADE_PICK); } else board();
+}
+
 // ---- public room cards: rebuilt by whoever changes an item in that room
 let dirty = new Set(), dirtyT = null;
 function codesFor(item) {
   if (!item || !S.rooms) return [];
-  return S.rooms.filter(r => r.floor === item.floor && (r.type === 'Floor' || roomMatch(item.room, r.room))).map(r => r.code);
+  const c = S.rooms.filter(r => r.floor === item.floor && (r.type === 'Floor' || roomMatch(item.room, r.room))).map(r => r.code);
+  if (project().tradeCode) c.push(project().tradeCode);
+  return c;
 }
+// every public card of this project: rooms, floors and the trade board
+function publicCards() { const t = project().tradeCode; return (S.rooms || []).concat(t ? [{ code: t, type: 'Trades' }] : []); }
+function allCodes() { return publicCards().map(r => r.code); }
 function markDirty(item) {
   if (!canEdit()) return;
   codesFor(item).forEach(c => dirty.add(c));
@@ -1303,6 +1343,7 @@ function markDirty(item) {
 function publicDoc(r) {
   const st = settings(), p = project();
   if (!st.publicRooms || r.active === false) return { pid: S.pid, projectName: p.name || '', off: true, log: !!st.logScans };
+  if (r.type === 'Trades') return tradeDoc();
   const items = S.items.filter(i => i.status !== 'Closed' && i.floor === r.floor && (r.type === 'Floor' || roomMatch(i.room, r.room)))
     .sort((a, b) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) || ord(a) - ord(b))
     .map(i => {
@@ -1314,10 +1355,23 @@ function publicDoc(r) {
   return { pid: S.pid, projectName: p.name || '', room: r.room, name: r.name || '', type: r.type || '', floor: r.floor,
     floorLabel: floorLabel(r.floor), log: !!st.logScans, items, updatedAt: F.serverTimestamp() };
 }
+function tradeDoc() {
+  const st = settings(), p = project(), { single, gen } = reportRows(S.items.filter(i => i.status !== 'Closed'));
+  const one = (i, extra) => {
+    const o = Object.assign({ number: i.groupCode || (i.number == null ? null : i.number), room: i.room || '', trade: i.trade || '',
+      description: i.description || '', status: i.status, floorLabel: floorLabel(i.floor) }, extra);
+    const ph = (i.photos || [])[0];
+    if (st.publicPhotos && ph) o.thumbUrl = ph.thumbUrl || ph.url;
+    return o;
+  };
+  const items = single.sort((a, b) => a.floor - b.floor || String(a.room).localeCompare(String(b.room), undefined, { numeric: true }) || ord(a) - ord(b)).map(i => one(i))
+    .concat(gen.map(i => one(i, { room: '', rooms: i.room, floorLabel: 'General items (several rooms)' }))).slice(0, 2500);
+  return { pid: S.pid, projectName: p.name || '', type: 'Trades', log: !!st.logScans, items, updatedAt: F.serverTimestamp() };
+}
 // Writes go to the device first and sync in the background. The returned promise settles when the
 // server confirms (or after 15 s), so nothing on screen ever waits on it for long.
 function publishRooms(codes) {
-  const rs = (S.rooms || []).filter(r => codes.includes(r.code)), jobs = [];
+  const rs = publicCards().filter(r => codes.includes(r.code)), jobs = [];
   for (let k = 0; k < rs.length; k += 400) {
     const b = F.writeBatch(db);
     rs.slice(k, k + 400).forEach(r => b.set(F.doc(db, 'public', r.code), publicDoc(r)));
@@ -1342,9 +1396,9 @@ $('rmFloor').onchange = () => renderRooms();
 document.querySelectorAll('[data-set]').forEach(c => c.onchange = async () => {
   const next = Object.assign(settings(), { [c.dataset.set]: c.checked });
   await F.updateDoc(F.doc(db, 'projects', S.pid), { settings: next }).catch(e => toast(friendly(e), 6000));
-  if (c.dataset.set !== 'autoRoom') { toast('Updating public pages…'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)).then(() => toast('Public pages updated')), 600); }
+  if (c.dataset.set !== 'autoRoom') { toast('Updating public pages…'); setTimeout(() => publishRooms(allCodes()).then(() => toast('Public pages updated')), 600); }
 });
-$('rmPublish').onclick = () => { toast('Updating room pages…', 15000); publishRooms(S.rooms.map(r => r.code)).then(() => toast('Room pages updated')); };
+$('rmPublish').onclick = () => { toast('Updating room pages…', 15000); publishRooms(allCodes()).then(() => toast('Room pages updated')); };
 
 async function loadScanCounts() {
   S.scanCounts = {};
@@ -1404,7 +1458,7 @@ $('rmLoadSeed').onclick = async () => {
   const floors = [...new Set(rows.map(r => r.floor))];
   if (floors.some(n => !S.floors.find(f => f.n === n))) { toast(`That list needs floors ${floors.join(', ')} — add them under Plans first.`, 7000); return; }
   floors.forEach(n => rows.unshift({ room: floorLabel(n), floor: n, name: 'Whole floor', type: 'Floor' }));
-  try { const n = await addRooms(rows); toast(n + ' rooms added'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)), 1500); }
+  try { const n = await addRooms(rows); toast(n + ' rooms added'); setTimeout(() => publishRooms(allCodes()), 1500); }
   catch (err) { toast(friendly(err), 6000); }
 };
 $('rmAddBtn').onclick = async () => {
@@ -1415,7 +1469,7 @@ $('rmAddBtn').onclick = async () => {
     else out.push({ room: t, floor, type: /^\d+[A-Z]?$/i.test(t) ? type : 'Common / BOH', name: /^\d/.test(t) ? '' : t });
   });
   if (!out.length) { toast('Type some rooms first'); return; }
-  try { const n = await addRooms(out); $('rmAdd').value = ''; toast(n + ' room(s) added'); setTimeout(() => publishRooms(S.rooms.map(r => r.code)), 1500); }
+  try { const n = await addRooms(out); $('rmAdd').value = ''; toast(n + ' room(s) added'); setTimeout(() => publishRooms(allCodes()), 1500); }
   catch (err) { toast(friendly(err), 6000); }
 };
 
@@ -1432,6 +1486,9 @@ $('qrBtn').onclick = () => {
 };
 function qrRooms() {
   const v = $('qWhich').value, rs = (S.rooms || []).filter(r => r.active !== false).slice().sort(sortRooms);
+  const tc = project().tradeCode || 'pending';
+  if (v === 'office') return [{ code: tc, type: 'Trades', room: 'PUNCH LIST', name: 'By trade — tap your trade' }];
+  if (v === 'trades') return TRADES.map(t => ({ code: tc, type: 'Trades', trade: t, room: t, name: 'Punch list for this trade' }));
   if (v === 'all') return rs;
   if (v === 'guest') return rs.filter(r => r.type === 'Guest room');
   if (v === 'common') return rs.filter(r => r.type !== 'Guest room' && r.type !== 'Floor');
@@ -1458,24 +1515,29 @@ function labelCanvas(r, w, h) {
   x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.fillStyle = '#000'; x.textAlign = 'center';
   const pad = Math.round(w * 0.05);
   const fitText = (t, max, size, weight) => { let s = Math.round(size); do { x.font = `${weight} ${s}px Arial, Helvetica, sans-serif`; s--; } while (x.measureText(t).width > max && s > 6); };
-  const big = r.type === 'Floor' ? r.room.toUpperCase() : 'Room ' + r.room;
+  const big = r.type === 'Floor' ? r.room.toUpperCase() : r.type === 'Trades' ? r.room : 'Room ' + r.room;
   let y = pad + h * 0.115;
   fitText(big, w - 2 * pad, h * 0.13, 'bold'); x.fillText(big, w / 2, y);
-  const sub = r.type === 'Floor' ? 'Whole floor' : [r.name, floorLabel(r.floor)].filter(Boolean).join(' · ');
+  const sub = r.type === 'Floor' ? 'Whole floor' : r.type === 'Trades' ? r.name : [r.name, floorLabel(r.floor)].filter(Boolean).join(' · ');
   y += h * 0.065; fitText(sub, w - 2 * pad, h * 0.052, 'normal'); x.fillText(sub, w / 2, y);
   const foot = String(project().name || '').replace(/\s+Suites\b/i, '') + ' · scan for punch list';
   const footH = h * 0.06, qrTop = y + h * 0.012, side = Math.min(w - 2 * pad * 0.4, h - qrTop - footH - pad * 0.6);
-  QR.draw(x, QR.encode(SITE_URL + '?r=' + r.code, 'M'), Math.round((w - side) / 2), Math.round(qrTop), Math.round(side));
+  QR.draw(x, QR.encode(SITE_URL + '?r=' + r.code + (r.trade ? '&t=' + encodeURIComponent(r.trade) : ''), 'M'), Math.round((w - side) / 2), Math.round(qrTop), Math.round(side));
   fitText(foot, w - 2 * pad, h * 0.042, 'normal'); x.fillText(foot, w / 2, h - pad * 0.7);
   return c;
 }
 $('qGo').onclick = async () => {
+  if (['office', 'trades'].includes($('qWhich').value) && !project().tradeCode) { // first trade label: give the project its trade-board code
+    const code = newCode();
+    try { await Promise.race([F.updateDoc(F.doc(db, 'projects', S.pid), { tradeCode: code }), new Promise(r => setTimeout(r, 4000))]); } catch (e) { toast(friendly(e), 6000); return; }
+    const p = project(); if (p && !p.tradeCode) p.tradeCode = code;
+  }
   const rooms = qrRooms();
   if (!rooms.length) { toast('No rooms selected'); return; }
   const btn = $('qGo'); btn.disabled = true; btn.textContent = 'Building…';
   await new Promise(r => setTimeout(r, 30));
   try {
-    publishRooms(rooms.map(r => r.code)); // room pages save in the background (also with no signal); labels don't wait for it
+    publishRooms([...new Set(rooms.map(r => r.code))]); // room pages save in the background (also with no signal); labels don't wait for it
     if ($('qFormat').value === 'avery') {
       const a = { top: Number($('qTop').value), left: Number($('qLeft').value), px: Number($('qPx').value), py: Number($('qPy').value) };
       store('pcg_avery', JSON.stringify(a));
@@ -1492,7 +1554,7 @@ $('qGo').onclick = async () => {
     } else {
       S.labelImgs = rooms.map(r => ({ r, url: labelCanvas(r, 384, 448).toDataURL('image/png') }));
       $('qOut').innerHTML = '<div class="meta">Tap a label to open it, then save it (long-press on a phone or iPad) and print it from your label printer\'s app.</div><div class="lblgrid">' +
-        S.labelImgs.map((l, i) => `<figure><a href="${l.url}" download="Room_${esc(l.r.room).replace(/\s+/g, '_')}.png" data-i="${i}"><img src="${l.url}" alt=""></a>${esc(l.r.room)}</figure>`).join('') + '</div>';
+        S.labelImgs.map((l, i) => `<figure><a href="${l.url}" download="${l.r.type === 'Trades' ? 'Trade' : 'Room'}_${esc(l.r.room).replace(/[^\w-]+/g, '_')}.png" data-i="${i}"><img src="${l.url}" alt=""></a>${esc(l.r.room)}</figure>`).join('') + '</div>';
       $('qStrip').classList.remove('hidden');
     }
   } catch (err) { toast('Error: ' + (err.message || err), 6000); }

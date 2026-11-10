@@ -1,5 +1,11 @@
 # PCG Punch changelog
 
+## v0.6.4 (2026-11-10) Trade QR codes
+- **QR codes → "Project office: one label, pick your trade"** makes a single label for the project office. Scanning it shows "Punch list by trade": every trade with open items and how many; tap a trade to see its open items by floor and room (general items once, with the rooms still open). No sign-in needed, like room labels.
+- **QR codes → "One label per trade"** makes a label for each trade that opens straight on that trade.
+- Signed-in people who scan either label get the app's list for all floors, set to that trade.
+- The trade board updates by itself when items change, and follows the same settings as room pages (on/off, photos, scan log).
+
 ## v0.6.3 (2026-11-10)
 - On phones and tablets the item window has two photo buttons: **📷 Camera** opens the camera directly, **🖼 Photos** picks from the phone. Newer Android phones' photo picker doesn't offer the camera, so the camera needed its own button. Computers keep a single **+ Photo**.
 
