@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.1 (2026-11-10)
+- **Delete all** button on the purple general-item bar (Admin): tap a general item's row, then Delete all removes it from every room in one step, with its photos. (Still also in Edit all.)
+
 ## v0.6.0 (2026-11-09) General items, Save-only item window
 - **Item window has only Save** (no Close) for Crew and Admin. Save with nothing changed just closes; a new tag saved with no description is dropped. Viewers, who can't save, still get Close.
 - **+ General:** one item for many rooms. Choose all guest rooms, guest rooms on one floor, common / BOH areas, every room, or pick rooms (with All / None per floor). Each room gets its own copy at that room's spot on the plan, so rooms are closed one by one and show on their QR page. Copies share a code (G1, G2…) and don't use up regular item numbers.

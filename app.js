@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.0';
+const VERSION = 'v0.6.1';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -857,18 +857,7 @@ async function queuePhotos(newOnes, ids) {
 }
 $('iDelete').onclick = async () => {
   const ed = S.editing;
-  if (ed._mode === 'gedit') {
-    const items = groupItems(ed.groupId);
-    if (!confirm(`Delete general item ${ed.groupCode} from all ${items.length} rooms? This can't be undone.`)) return;
-    for (let k = 0; k < items.length; k += 450) {
-      const b = F.writeBatch(db);
-      items.slice(k, k + 450).forEach(i => b.delete(F.doc(db, 'projects', S.pid, 'items', i.id)));
-      b.commit().catch(err => toast(friendly(err), 6000));
-    }
-    items.forEach(markDirty);
-    deletePhotoFiles(items.flatMap(i => i.photos || []), items.map(i => i.id));
-    clearGroupFilter(true); closeModal(); toast(`Deleted ${ed.groupCode} (${items.length} rooms)`); return;
-  }
+  if (ed._mode === 'gedit') { if (deleteGroup(ed.groupId)) closeModal(); return; }
   if (!confirm(`Delete ${ed.groupId ? ed.groupCode + ' from room ' + ed.room : '#' + numText(ed)}? This can't be undone.`)) return;
   const it = S.items.find(i => i.id === ed.id) || ed;
   F.deleteDoc(F.doc(db, 'projects', S.pid, 'items', ed.id)).catch(err => toast(friendly(err), 6000));
@@ -942,6 +931,22 @@ function updateGroupChip() {
   $('groupChip').classList.remove('hidden');
 }
 $('groupChipX').onclick = () => clearGroupFilter();
+$('groupDel').onclick = () => { if (S.groupFilter) deleteGroup(S.groupFilter); };
+// Delete a general item from every room it was added to (Admin). Returns true if deleted.
+function deleteGroup(gid) {
+  const items = groupItems(gid); if (!items.length) return false;
+  const code = items[0].groupCode;
+  if (!confirm(`Delete general item ${code} from all ${items.length} rooms? This can't be undone.`)) return false;
+  for (let k = 0; k < items.length; k += 450) {
+    const b = F.writeBatch(db);
+    items.slice(k, k + 450).forEach(i => b.delete(F.doc(db, 'projects', S.pid, 'items', i.id)));
+    b.commit().catch(err => toast(friendly(err), 6000));
+  }
+  items.forEach(markDirty);
+  deletePhotoFiles(items.flatMap(i => i.photos || []), items.map(i => i.id));
+  clearGroupFilter(); toast(`Deleted ${code} from ${items.length} rooms`);
+  return true;
+}
 $('groupEdit').onclick = () => { if (S.groupFilter) openGroup(S.groupFilter); };
 
 function setKeepStatus(on) {
