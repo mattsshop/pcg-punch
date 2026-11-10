@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.7 (2026-11-10)
+- **QR codes → Print on: "Label PDF, one label per page"**: makes a PDF sized to the label (50 × 50 mm by default; also 40 × 40, 2" × 2", 50 × 30, 40 × 30 mm), one label per page, for any set of labels. For Print Master on iPhone: **Share PDF → Save to Files**, then import it in Print Master from Files. Computers get a Download button. The size you pick is remembered.
+
 ## v0.6.6 (2026-11-10)
 - Shared QR labels are sent as JPEG instead of PNG: Phomemo opened from a shared PNG but didn't load the picture.
 

@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.6.6">
-<script src="config.js?v=0.6.6"></script>
+<link rel="stylesheet" href="style.css?v=0.6.7">
+<script src="config.js?v=0.6.7"></script>
 </head>
 <body>
 
@@ -189,7 +189,11 @@
     <div class="full hidden" id="qListWrap"><label>Rooms (comma separated, ranges OK)<input id="qList" placeholder="214, 215, 301-310, Level 2"></label></div>
     <div class="full"><label>Print on<select id="qFormat">
       <option value="avery">Avery 2" × 2" sheet labels (22806 – 12 per sheet)</option>
-      <option value="images">Single label images (mini label printer / phone)</option></select></label></div>
+      <option value="images">Single label images (mini label printer / phone)</option>
+      <option value="pdf">Label PDF, one label per page (Print Master and other printer apps)</option></select></label></div>
+    <div class="full hidden" id="qPdfWrap"><label>Label size<select id="qPdfSize">
+      <option value="50x50">50 × 50 mm</option><option value="40x40">40 × 40 mm</option><option value="50.8x50.8">2" × 2" (50.8 mm)</option>
+      <option value="50x30">50 × 30 mm</option><option value="40x30">40 × 30 mm</option></select></label></div>
   </div>
   <details class="adj" id="qAdj"><summary>Sheet alignment (only if labels print off-center)</summary>
     <div class="grid" style="margin-top:6px">
@@ -297,6 +301,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.6.6"></script>
+<script type="module" src="app.js?v=0.6.7"></script>
 </body>
 </html>

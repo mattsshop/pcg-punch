@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.6';
+const VERSION = 'v0.6.7';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1482,6 +1482,7 @@ $('qrBtn').onclick = () => {
   const a = Object.assign({}, AVERY); try { Object.assign(a, JSON.parse(store('pcg_avery') || '{}')); } catch (e) {}
   $('qTop').value = a.top; $('qLeft').value = a.left; $('qPx').value = a.px; $('qPy').value = a.py;
   $('qOut').innerHTML = ''; $('qStrip').classList.add('hidden');
+  if (store('pcg_pdfsize')) $('qPdfSize').value = store('pcg_pdfsize');
   $('roomsModal').classList.add('hidden'); qrCount(); $('qrModal').classList.remove('hidden');
 };
 function qrRooms() {
@@ -1505,9 +1506,11 @@ function qrCount() {
   const n = qrRooms().length, avery = $('qFormat').value === 'avery';
   $('qListWrap').classList.toggle('hidden', $('qWhich').value !== 'list');
   $('qAdj').classList.toggle('hidden', !avery);
+  $('qPdfWrap').classList.toggle('hidden', $('qFormat').value !== 'pdf');
   $('qCount').textContent = n + ' label(s)' + (avery ? ' · ' + Math.ceil((n + (Number($('qStart').value) || 1) - 1) / 12) + ' sheet(s)' : '');
 }
 ['qWhich', 'qFormat', 'qStart', 'qList'].forEach(id => $(id).addEventListener('input', qrCount));
+$('qPdfSize').addEventListener('change', () => store('pcg_pdfsize', $('qPdfSize').value));
 
 function labelCanvas(r, w, h) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -1538,6 +1541,19 @@ $('qGo').onclick = async () => {
   await new Promise(r => setTimeout(r, 30));
   try {
     publishRooms([...new Set(rooms.map(r => r.code))]); // room pages save in the background (also with no signal); labels don't wait for it
+    if ($('qFormat').value === 'pdf') {
+      const [wmm, hmm] = $('qPdfSize').value.split('x').map(Number), px = 8; // 8 px per mm ≈ 203 dpi
+      const pages = rooms.map(r => labelCanvas(r, Math.round(wmm * px), Math.round(hmm * px)).toDataURL('image/jpeg', 0.92));
+      const name = `QR_labels_${(project().name || 'project').replace(/[^\w]+/g, '_')}_${rooms.length === 1 ? String(rooms[0].room).replace(/[^\w]+/g, '_') : rooms.length + '_labels'}_${wmm}x${hmm}mm.pdf`;
+      S.labelPdf = new File([labelPdf(pages, wmm, hmm)], name, { type: 'application/pdf' });
+      const url = URL.createObjectURL(S.labelPdf);
+      $('qOut').innerHTML = `<div class="meta"><b>${rooms.length} label(s)</b>, one per page, ${wmm} × ${hmm} mm.<br>` +
+        (CAN_SHARE_PDF ? 'Tap <b>Share PDF</b> → <b>Save to Files</b>, then in Print Master import it from <b>Files</b> and print. (If Print Master shows in the share menu, you can pick it directly.)'
+          : 'Download the PDF, then open or import it in your label printer\'s app.') + '</div>' +
+        `<div class="btns">${CAN_SHARE_PDF ? '<button class="primary" id="qPdfShare">Share PDF</button>' : ''}<a class="btn-link" href="${url}" download="${esc(name)}" target="_blank">${CAN_SHARE_PDF ? 'Open PDF' : '<button class="primary" type="button">Download PDF</button>'}</a></div>`;
+      if ($('qPdfShare')) $('qPdfShare').onclick = () => navigator.share({ files: [S.labelPdf] }).catch(err => { if (err.name !== 'AbortError') toast('Could not share: ' + err.message, 6000); });
+      return;
+    }
     if ($('qFormat').value === 'avery') {
       const a = { top: Number($('qTop').value), left: Number($('qLeft').value), px: Number($('qPx').value), py: Number($('qPy').value) };
       store('pcg_avery', JSON.stringify(a));
@@ -1563,6 +1579,30 @@ $('qGo').onclick = async () => {
 };
 addEventListener('afterprint', () => { $('printArea').innerHTML = ''; });
 // Share a label straight to a printer app (Phomemo etc.) through the phone's share menu
+const CAN_SHARE_PDF = (() => { try { return TOUCH && !!navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(1)], 'x.pdf', { type: 'application/pdf' })] }); } catch (e) { return false; } })();
+// A small PDF writer: one JPEG per page, page size in millimetres (no library needed)
+function labelPdf(jpegs, wmm, hmm) {
+  const W = (wmm * 72 / 25.4).toFixed(2), H = (hmm * 72 / 25.4).toFixed(2), enc = new TextEncoder(), parts = [], offs = [];
+  let len = 0;
+  const add = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+  const bytes = d => { const bin = atob(d.split(',')[1]), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+  const dims = d => { const u = bytes(d); for (let i = 2; i < u.length;) { if (u[i] !== 0xFF) { i++; continue; } const m = u[i + 1];
+    if (m >= 0xC0 && m <= 0xC3) return [u, (u[i + 7] << 8) | u[i + 8], (u[i + 5] << 8) | u[i + 6]]; i += 2 + ((u[i + 2] << 8) | u[i + 3]); } return [u, 1, 1]; };
+  const n = jpegs.length, obj = (id, body) => { offs[id] = len; add(`${id} 0 obj\n`); body(); add('\nendobj\n'); };
+  add('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  obj(1, () => add('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(2, () => add(`<< /Type /Pages /Count ${n} /Kids [${jpegs.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] >>`));
+  jpegs.forEach((d, i) => {
+    const pg = 3 + i * 3, ct = pg + 1, im = pg + 2, [u, w, h] = dims(d), cs = `q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`;
+    obj(pg, () => add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`));
+    obj(ct, () => add(`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`));
+    obj(im, () => { add(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${u.length} >>\nstream\n`); add(u); add('\nendstream'); });
+  });
+  const total = 3 + n * 3, xref = len;
+  add(`xref\n0 ${total}\n0000000000 65535 f \n` + offs.slice(1, total).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join(''));
+  add(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
 // JPEG: some printer apps (Phomemo) open from a shared PNG but don't load it
 function imgFile(dataUrl, name) {
   const type = dataUrl.slice(5, dataUrl.indexOf(';')), bin = atob(dataUrl.split(',')[1]), u = new Uint8Array(bin.length);
