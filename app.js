@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.9';
+const VERSION = 'v0.6.10';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -176,6 +176,7 @@ function enterApp() {
   S.unsub.projects = F.onSnapshot(F.query(F.collection(db, 'projects'), F.orderBy('name')), { includeMetadataChanges: true }, snap => {
     if (!snap.metadata.fromCache) serverSeen();
     S.projects = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    fillTrades();
     if (!S.projects.length && !S.serverOk) { renderProjects(); showProjLoading(); return; } // this device has nothing saved yet
     renderProjects();
     const want = S.projects.find(p => p.id === S.pid) ? S.pid : (S.projects.find(p => p.id === store('pcg_pid')) || S.projects[0] || {}).id;
@@ -374,7 +375,7 @@ viewer.addEventListener('pointercancel', e => endPtr(e, true));
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.modal').classList.add('hidden'));
 
 // Projects (Admin)
-function openProjects() { renderProjTable(); $('projModal').classList.remove('hidden'); }
+function openProjects() { renderProjTable(); renderTradeList(); $('projModal').classList.remove('hidden'); }
 $('projBtn').onclick = openProjects;
 function renderProjTable() {
   $('projTable').innerHTML = S.projects.length
@@ -564,17 +565,54 @@ const canEdit = () => S.me && S.me.role !== 'Viewer';
 const meStamp = () => ({ uid: S.user.uid, name: S.me.name || S.user.email });
 Object.assign(S, { items: [], adding: false, editing: null, moving: false, pendingPhotos: [], keptPhotos: [], queued: {}, numbering: new Set() });
 
-function fillTrades() {
-  const opts = TRADES.map(t => `<option>${esc(t)}</option>`).join('');
-  $('iTrade').innerHTML = '<option value="">— Select —</option>' + opts;
-  $('fTrade').innerHTML = '<option value="">All trades</option>' + opts;
+// Standard trades + this project's extra trades (+ any trade already used on an item, so nothing disappears)
+function allTrades() {
+  const extra = (project().trades || []).concat(S.items.map(i => i.trade)).filter(Boolean);
+  return TRADES.concat([...new Set(extra)].filter(t => !TRADES.includes(t)).sort((a, b) => a.localeCompare(b)));
 }
+function fillTrades() {
+  const iv = $('iTrade').value, fv = $('fTrade').value, opts = allTrades().map(t => `<option>${esc(t)}</option>`).join('');
+  $('iTrade').innerHTML = '<option value="">— Select —</option>' + opts + (S.me && S.me.role === 'Admin' ? '<option value="__add">+ Add a trade…</option>' : '');
+  $('fTrade').innerHTML = '<option value="">All trades</option>' + opts;
+  if (iv && iv !== '__add') $('iTrade').value = iv;
+  $('fTrade').value = fv;
+}
+async function addTrade(name) {
+  name = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!name) return '';
+  const have = allTrades().find(t => t.toLowerCase() === name.toLowerCase()); if (have) return have;
+  const p = project(); p.trades = (p.trades || []).concat(name); // show it right away
+  F.updateDoc(F.doc(db, 'projects', S.pid), { trades: F.arrayUnion(name) }).catch(err => toast('Trade not saved: ' + friendly(err), 6000));
+  fillTrades(); renderTradeList(); toast('Trade added: ' + name);
+  return name;
+}
+$('iTrade').addEventListener('change', async () => {
+  if ($('iTrade').value !== '__add') return;
+  const name = await addTrade(prompt('New trade name (for this project):') || '');
+  $('iTrade').value = name || '';
+});
+function renderTradeList() {
+  const ex = project().trades || [];
+  $('trProj').textContent = project().name || '';
+  $('trList').innerHTML = ex.length ? ex.map(t => `<span class="chipx">${esc(t)} <button data-trdel="${esc(t)}" title="Remove">×</button></span>`).join(' ')
+    : '<span class="meta">None yet.</span>';
+}
+$('trAdd').onclick = async () => { if (await addTrade($('trName').value)) $('trName').value = ''; };
+$('trList').addEventListener('click', e => {
+  const t = e.target.dataset.trdel; if (!t) return;
+  const used = S.items.filter(i => i.trade === t).length;
+  if (!confirm(`Remove "${t}" from the trade list?` + (used ? ` ${used} item(s) keep it, and it stays in the list while they do.` : ''))) return;
+  const p = project(); p.trades = (p.trades || []).filter(x => x !== t);
+  F.updateDoc(F.doc(db, 'projects', S.pid), { trades: p.trades }).catch(err => toast(friendly(err), 6000));
+  fillTrades(); renderTradeList();
+});
 
 function watchItems(pid) {
   S.unsub.items = F.onSnapshot(F.collection(db, 'projects', pid, 'items'), { includeMetadataChanges: true }, snap => {
     if (S.pid !== pid) return;
     S.items = snap.docs.map(d => Object.assign({ id: d.id, _pending: d.metadata.hasPendingWrites }, d.data()));
     S.fromCache = snap.metadata.fromCache;
+    const tk = allTrades().join('|'); if (tk !== S.tradeKey) { S.tradeKey = tk; fillTrades(); }
     renderAll(); assignNumbers(); updateNet();
   }, e => toast(friendly(e), 6000));
 }
@@ -1496,7 +1534,7 @@ function qrRooms() {
   const v = $('qWhich').value, rs = (S.rooms || []).filter(r => r.active !== false).slice().sort(sortRooms);
   const tc = project().tradeCode || 'pending';
   if (v === 'office') return [{ code: tc, type: 'Trades', room: 'PUNCH LIST', name: 'By trade — tap your trade' }];
-  if (v === 'trades') return TRADES.map(t => ({ code: tc, type: 'Trades', trade: t, room: t, name: 'Punch list for this trade' }));
+  if (v === 'trades') return allTrades().map(t => ({ code: tc, type: 'Trades', trade: t, room: t, name: 'Punch list for this trade' }));
   if (v === 'all') return rs;
   if (v === 'guest') return rs.filter(r => r.type === 'Guest room');
   if (v === 'common') return rs.filter(r => r.type !== 'Guest room' && r.type !== 'Floor');
@@ -1668,7 +1706,7 @@ const TRADE_TAGS = {
 // "Items" picker shared by the three windows
 function fillScope(sel) {
   const cur = filtered();
-  const trades = TRADES.filter(t => S.items.some(i => i.trade === t && i.status !== 'Closed'));
+  const trades = allTrades().filter(t => S.items.some(i => i.trade === t && i.status !== 'Closed'));
   sel.innerHTML = `<option value="filter">Current list / filters (${cur.length})</option>
     <option value="allopen">All open items, all floors</option><option value="all">Everything, including closed</option>` +
     trades.map(t => `<option value="trade:${esc(t)}">${esc(t)} – open items</option>`).join('');

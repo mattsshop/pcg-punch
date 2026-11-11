@@ -206,3 +206,6 @@ body:not(.role-Viewer) .viewer-only{display:none!important}
 .tradegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tradegrid button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px;text-align:left;font-size:15px}
 .tradegrid button span{font-size:12px;color:var(--mut)}
+
+.chipx{display:inline-flex;align-items:center;gap:4px;background:#f1f3f4;border-radius:12px;padding:2px 4px 2px 10px;margin:2px 0;font-size:13px}
+.chipx button{padding:0 6px;font-size:13px;line-height:18px}

@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.6.10 (2026-11-10)
+- **Add trades per project** (Admin). In an item's Trade list pick **+ Add a trade…**, or use **Projects → Extra trades** to add and remove them. Extra trades appear in the item window, the trade filter, email, Fieldwire and the trade QR labels for that project.
+- A trade still used by items stays in the lists even after it's removed, so nothing goes missing.
+
 ## v0.6.9 (2026-11-10)
 - Pins at the same spot (several general items in one room, or tags placed on top of each other) are spread out side by side, up to 5 in a row, then a second row, so each can be seen and tapped. Their saved positions don't change.
 
