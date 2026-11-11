@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.8';
+const VERSION = 'v0.6.9';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -629,9 +629,16 @@ const byOrd = (a, b) => ord(a) - ord(b) || String(a.room || '').localeCompare(St
 function renderPins() {
   const img = $('plan'); if (!img.naturalWidth || img.style.display === 'none') { $('pins').innerHTML = ''; return; }
   const ed = S.editing;
-  let html = filtered(true).filter(i => i.floor === S.floor).map(i => {
-    if (ed && ed.id === i.id && ed._moved) return '';
-    return `<div class="pw" style="left:${i.x * 100}%;top:${i.y * 100}%"><div class="pin ${STATUS_CLS(i.status)}${i._pending ? ' pending' : ''}${i.groupId ? ' gen' : ''}" data-id="${i.id}" title="#${numText(i)} ${esc(i.room)} – ${esc(i.description)}"><span>${numText(i)}</span></div></div>`;
+  const shown = filtered(true).filter(i => i.floor === S.floor && !(ed && ed.id === i.id && ed._moved));
+  // Pins at the same spot (e.g. several general items in one room) are spread side by side so each can be tapped
+  const spot = i => Math.round(i.x * 400) + ':' + Math.round(i.y * 400), at = {};
+  shown.forEach(i => (at[spot(i)] = at[spot(i)] || []).push(i));
+  let html = shown.map(i => {
+    const same = at[spot(i)], k = same.indexOf(i), n = same.length;
+    const cols = Math.min(n, 5), row = Math.floor(k / cols), col = k % cols, inRow = Math.min(cols, n - row * cols);
+    const dx = n > 1 ? Math.round((col - (inRow - 1) / 2) * 30) : 0, dy = n > 1 ? row * 34 : 0;
+    const off = n > 1 ? ` style="left:${dx - 15}px;top:${dy - 36}px"` : '';
+    return `<div class="pw" style="left:${i.x * 100}%;top:${i.y * 100}%"><div class="pin ${STATUS_CLS(i.status)}${i._pending ? ' pending' : ''}${i.groupId ? ' gen' : ''}" data-id="${i.id}"${off} title="#${numText(i)} ${esc(i.room)} – ${esc(i.description)}"><span>${numText(i)}</span></div></div>`;
   }).join('');
   if (ed && ed.floor === S.floor && ed.x != null && (!ed.id || ed._moved)) {
     html += `<div class="pw" style="left:${ed.x * 100}%;top:${ed.y * 100}%"><div class="pin temp"><span>${ed.id ? numText(ed) : '+'}</span></div></div>`;

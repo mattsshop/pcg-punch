@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.6.9 (2026-11-10)
+- Pins at the same spot (several general items in one room, or tags placed on top of each other) are spread out side by side, up to 5 in a row, then a second row, so each can be seen and tapped. Their saved positions don't change.
+
 ## v0.6.8 (2026-11-10)
 - Label PDF: added **50 × 80 mm (tall)**. On tall labels the QR code sits centered between the room name and the footer.
 
