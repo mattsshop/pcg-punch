@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.7.1 (2026-11-12)
+- Signature pad works with a **finger or a pen** (Apple Pencil, Samsung S Pen, other styluses) or a mouse, and says so. With a pen the line follows pen pressure, and finger/palm touches are ignored on that room so a resting hand doesn't draw. Smoother lines and a taller signing area.
+
 ## v0.7.0 (2026-11-12) Owner room sign-off
 - **Sign-off** button (Crew, Admin): every room with its sign-off status (Not signed, Accepted, Accepted with exceptions, Rejected, Reopened), filters, and a count per floor.
 - **Owner signs on your tablet.** Tap **Sign** on a room (or **Owner sign-off** on the blue room bar after scanning a room's QR code). A full-screen signing screen with nothing else on it is handed to the owner:

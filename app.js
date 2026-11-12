@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.7.0';
+const VERSION = 'v0.7.1';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1271,18 +1271,33 @@ function setupPad() {
   const c = $('sgPad'), box = c.parentElement.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   c.width = Math.round(box.width * dpr); c.height = Math.round(box.height * dpr);
   const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.lineWidth = 2.6; x.lineCap = x.lineJoin = 'round'; x.strokeStyle = '#0b1a3a';
-  SIG.pad = x; SIG.drawn = false; SIG.dpr = dpr;
+  x.fillStyle = '#0b1a3a'; SIG.pad = x; SIG.drawn = false; SIG.dpr = dpr; SIG.penUsed = false;
 }
+// Finger, stylus (Apple Pencil, S Pen…) or mouse. Once a pen is used, finger touches are ignored so a resting palm
+// doesn't draw. Pen pressure makes the line thicker or thinner; strokes are smoothed with midpoint curves.
 (() => {
-  const c = $('sgPad'); let down = false, last = null;
+  const c = $('sgPad'); let id = null, last = null, mid = null;
   const pos = e => { const b = c.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
-  c.addEventListener('pointerdown', e => { down = true; last = pos(e); c.setPointerCapture(e.pointerId); SIG.pad.beginPath(); SIG.pad.arc(last[0], last[1], 1.2, 0, 7); SIG.pad.fill(); e.preventDefault(); });
+  const width = e => e.pointerType === 'pen' && e.pressure > 0 ? 1.2 + e.pressure * 3.2 : e.pointerType === 'touch' ? 2.8 : 2.4;
+  c.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'pen') SIG.penUsed = true;
+    if (SIG.penUsed && e.pointerType === 'touch') return; // palm rejection
+    if (id != null) return;
+    id = e.pointerId; last = mid = pos(e); try { c.setPointerCapture(id); } catch (err) {} e.preventDefault();
+    SIG.pad.beginPath(); SIG.pad.arc(last[0], last[1], width(e) / 2, 0, 7); SIG.pad.fill();
+  });
   c.addEventListener('pointermove', e => {
-    if (!down) return; const p = pos(e);
-    SIG.pad.beginPath(); SIG.pad.moveTo(last[0], last[1]); SIG.pad.lineTo(p[0], p[1]); SIG.pad.stroke(); last = p;
+    if (e.pointerId !== id) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    (evs.length ? evs : [e]).forEach(ev => {
+      const p = pos(ev), m = [(last[0] + p[0]) / 2, (last[1] + p[1]) / 2];
+      SIG.pad.lineWidth = width(ev);
+      SIG.pad.beginPath(); SIG.pad.moveTo(mid[0], mid[1]); SIG.pad.quadraticCurveTo(last[0], last[1], m[0], m[1]); SIG.pad.stroke();
+      last = p; mid = m;
+    });
     if (!SIG.drawn) { SIG.drawn = true; updateStmt(); }
   });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => c.addEventListener(t, () => { down = false; }));
+  ['pointerup', 'pointercancel'].forEach(t => c.addEventListener(t, e => { if (e.pointerId === id) id = null; }));
 })();
 $('sgClear').onclick = () => { setupPad(); updateStmt(); };
 $('sgCancel').onclick = () => { if (confirm('Stop signing this room? Nothing will be saved.')) { $('signScreen').classList.add('hidden'); openSignoffs(SIG.room && SIG.room.floor); } };
