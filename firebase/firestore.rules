@@ -1,5 +1,5 @@
 rules_version = '2';
-// PCG Punch — Firestore security rules (v0.4.0)
+// PCG Punch — Firestore security rules (v0.7.0)
 // Paste into Firebase console > Firestore Database > Rules > Publish.
 // OWNER: the Google account below is always Admin (so you can never lock yourself out).
 service cloud.firestore {
@@ -45,10 +45,16 @@ service cloud.firestore {
         allow create, update: if hasRole('Crew');
         allow delete: if hasRole('Admin');
       }
+      // Owner room sign-offs: Crew and Admins record them (as the witness); nobody can change or delete one.
+      match /signoffs/{id} {
+        allow read: if hasRole('Viewer');
+        allow create: if hasRole('Crew') && request.resource.data.witness.uid == request.auth.uid;
+        allow update, delete: if false;
+      }
       // floors, rooms, trades, settings
       match /{collection}/{doc} {
         allow read: if hasRole('Viewer');
-        allow write: if hasRole('Admin');
+        allow write: if hasRole('Admin') && collection != 'signoffs';
       }
     }
 

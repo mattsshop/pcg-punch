@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.6.10">
-<script src="config.js?v=0.6.10"></script>
+<link rel="stylesheet" href="style.css?v=0.7.0">
+<script src="config.js?v=0.7.0"></script>
 </head>
 <body>
 
@@ -97,6 +97,7 @@
       <button id="mailBtn" class="crew-only">Email</button>
       <button id="printBtn">Print / PDF</button>
       <button id="fwBtn" class="crew-only">Fieldwire</button>
+      <button id="soBtn" class="crew-only">Sign-off</button>
       <button id="plansBtn" class="admin-only">Plans</button>
       <button id="projBtn" class="admin-only">Projects</button>
       <button id="roomsBtn" class="admin-only">Rooms</button>
@@ -113,7 +114,7 @@
     </section>
     <aside id="panel">
       <div class="filters">
-        <div id="roomChip" class="hidden"><b id="roomChipText"></b><button id="roomChipX">Show all rooms</button></div>
+        <div id="roomChip" class="hidden"><b id="roomChipText"></b><button id="roomSign" class="crew-only">Owner sign-off</button><button id="roomChipX">Show all rooms</button></div>
         <div id="groupChip" class="hidden"><b id="groupChipText"></b><button id="groupEdit" class="crew-only">Edit all</button><button id="groupDel" class="admin-only danger">Delete all</button><button id="groupChipX">Show all</button></div>
         <input type="search" id="fSearch" placeholder="Search # / room / description / assigned">
         <select id="fStatus"><option value="active">Not closed</option><option value="">All statuses</option>
@@ -303,8 +304,60 @@
   </div>
 </div></div>
 
+<!-- Owner sign-off: room list (Crew, Admin) -->
+<div class="modal hidden" id="soModal"><div class="card" style="width:760px">
+  <h3>Owner sign-off — <span id="soProj"></span></h3>
+  <div class="grid">
+    <div><label>Floor<select id="soFloor"></select></label></div>
+    <div><label>Show<select id="soShow"><option value="">All rooms</option><option value="todo">Not signed yet</option>
+      <option value="attn">Exceptions, rejected or reopened</option><option value="ok">Accepted</option></select></label></div>
+  </div>
+  <div class="meta" id="soSum" style="margin:8px 0"></div>
+  <div id="soList" class="solist"></div>
+  <div class="btns"><button id="soReport">Sign-off report (PDF)</button><span class="sp"></span><button data-close>Close</button></div>
+</div></div>
+
+<!-- Owner sign-off: full-screen signing screen, handed to the owner -->
+<div id="signScreen" class="hidden">
+  <div class="sg-head"><div><div class="sg-room" id="sgRoom"></div><div class="meta" id="sgSub"></div></div><button id="sgCancel">Cancel</button></div>
+  <div class="sg-body">
+    <section id="sgWho">
+      <h3>Who is signing?</h3>
+      <div class="grid">
+        <div><label>Full name<input id="sgName" autocomplete="name"></label></div>
+        <div><label>Title<input id="sgTitle" placeholder="e.g. Owner, Owner's rep"></label></div>
+        <div><label>Company<input id="sgCompany" autocomplete="organization"></label></div>
+        <div><label>Email (a copy of each sign-off is sent here)<input id="sgEmail" type="email" autocomplete="email"></label></div>
+      </div>
+      <label class="chk sg-consent"><input type="checkbox" id="sgConsent"> I agree to sign electronically on this device. My electronic signature has the same effect as my handwritten signature.</label>
+      <div class="btns"><button class="primary" id="sgWhoNext">Continue</button></div>
+    </section>
+    <section id="sgReview" class="hidden">
+      <div class="meta" id="sgSigner"></div>
+      <h4>Punch items in this room</h4>
+      <div id="sgItems"></div>
+      <h4>Decision</h4>
+      <div class="sg-choices">
+        <label><input type="radio" name="sgRes" value="Accepted"> <b>Accept</b> — room is complete</label>
+        <label><input type="radio" name="sgRes" value="Accepted with exceptions"> <b>Accept with exceptions</b> — complete except the items listed</label>
+        <label><input type="radio" name="sgRes" value="Rejected"> <b>Reject</b> — not ready; items below must be done first</label>
+      </div>
+      <div class="meta" id="sgOpenNote"></div>
+      <div id="sgExcBox" class="hidden"><label>Add items (one per line — each becomes a punch item in this room)<textarea id="sgExc" rows="3" placeholder="e.g. Scratch on headboard"></textarea></label></div>
+      <label>Comments (optional)<textarea id="sgNote" rows="2"></textarea></label>
+      <div class="sg-stmt" id="sgStmt"></div>
+      <div class="sg-padwrap"><canvas id="sgPad"></canvas><div class="sg-line">✕ Sign here</div><button id="sgClear" type="button">Clear</button></div>
+      <div class="btns"><button class="primary sg-big" id="sgSign" disabled>Sign</button></div>
+    </section>
+    <section id="sgDone" class="hidden">
+      <div class="sg-donebox"><div class="sg-check">✓</div><h3 id="sgDoneT"></h3><p id="sgDoneP"></p><p><b>Please hand the device back.</b></p></div>
+      <div class="btns"><button class="primary sg-big" id="sgNext">Next room</button><button id="sgBack">Room list</button></div>
+    </section>
+  </div>
+</div>
+
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.6.10"></script>
+<script type="module" src="app.js?v=0.7.0"></script>
 </body>
 </html>

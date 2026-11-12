@@ -26,6 +26,7 @@ until the switch. The screens, plans, QR labels, Fieldwire export and PDF report
 | 4 | Rooms, QR labels, public read-only room pages, scan log | done (v0.4) |
 | 5 | Email to subs (Apps Script mailer), Print / PDF, Fieldwire export | done (v0.5) |
 | 6 | Move items over from the Apps Script version | not needed |
+| 7 | Owner room sign-off on the GC's tablet | done (v0.7) |
 
 ## Step 1 — Firebase setup (Firebase console, about 15 minutes)
 

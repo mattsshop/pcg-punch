@@ -1,5 +1,20 @@
 # PCG Punch changelog
 
+## v0.7.0 (2026-11-12) Owner room sign-off
+- **Sign-off** button (Crew, Admin): every room with its sign-off status (Not signed, Accepted, Accepted with exceptions, Rejected, Reopened), filters, and a count per floor.
+- **Owner signs on your tablet.** Tap **Sign** on a room (or **Owner sign-off** on the blue room bar after scanning a room's QR code). A full-screen signing screen with nothing else on it is handed to the owner:
+  - first room only: name, title, company, email and agreement to sign electronically (remembered for the rest of the walk; "Not you?" to change);
+  - the room's punch items with status and photo;
+  - decision: **Accept** (only when nothing is open), **Accept with exceptions**, or **Reject**; extra items typed in become punch items in that room; comments;
+  - the statement they're signing, and a finger signature pad;
+  - **Next room** goes to the next unsigned room on the floor.
+- Each sign-off is a permanent record: result, statement, signer, signature, date and time, device, the signed-in person as witness, and the room's items at that moment. Nobody can edit or delete it; signing again adds a newer record.
+- A room shows **Reopened** if a new punch item is added after it was accepted.
+- **Email copy** of each sign-off, with the signature, goes to the signer (copy to you). Needs **mailer v0.7.0**.
+- **Certificate** (one room) and **Sign-off report** (summary table with signatures, optional certificate pages) via Print / Save as PDF.
+- **Firestore rules v0.7.0** must be published (adds the sign-off records and blocks changing them).
+- Closed items now show a green status badge.
+
 ## v0.6.10 (2026-11-10)
 - **Add trades per project** (Admin). In an item's Trade list pick **+ Add a trade…**, or use **Projects → Extra trades** to add and remove them. Extra trades appear in the item window, the trade filter, email, Fieldwire and the trade QR labels for that project.
 - A trade still used by items stays in the lists even after it's removed, so nothing goes missing.

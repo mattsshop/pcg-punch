@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.6.10';
+const VERSION = 'v0.7.0';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -261,7 +261,7 @@ function noProjects() {
 }
 
 function selectProject(pid) {
-  stop('floors'); stop('items'); stop('rooms'); S.items = []; S.rooms = []; closeModal(true);
+  stop('floors'); stop('items'); stop('rooms'); stop('signoffs'); S.items = []; S.rooms = []; S.signoffs = []; closeModal(true);
   if (S.roomFilter && S.roomFilter.pid !== pid) clearRoomFilter(true);
   S.pid = pid; S.floor = null;
   if (!pid) { noProjects(); return; }
@@ -269,6 +269,11 @@ function selectProject(pid) {
   renderProjects();
   watchItems(pid);
   watchRooms(pid);
+  S.unsub.signoffs = F.onSnapshot(F.collection(db, 'projects', pid, 'signoffs'), snap => {
+    if (S.pid !== pid) return;
+    S.signoffs = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    if (!$('soModal').classList.contains('hidden')) renderSignoffs();
+  }, () => {});
   S.unsub.floors = F.onSnapshot(F.query(F.collection(db, 'projects', pid, 'floors'), F.orderBy('n')), snap => {
     S.floors = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     const keep = S.floors.find(f => f.n === S.floor) ? S.floor : (S.floors.find(f => f.n === Number(store('pcg_floor_' + pid))) || S.floors[0] || {}).n;
@@ -1147,6 +1152,240 @@ function reportRows(items) {
     return Object.assign({}, f, { _gen: true, room, status: open.length ? 'Open' : 'Closed', _statusText: open.length ? `Open (${open.length}/${list.length})` : 'Closed' });
   }).sort(byOrd);
   return { single, gen };
+}
+
+// =====================================================================
+// Owner room sign-off (v0.7.0). The owner / owner's rep walks with the GC and signs each room on the GC's
+// tablet. The signed-in GC person is recorded as the witness. Sign-offs are never edited or deleted (rules);
+// a room that needs signing again just gets a newer record.
+// =====================================================================
+const SO_LABEL = { none: 'Not signed', ok: 'Accepted', exc: 'Accepted with exceptions', rej: 'Rejected', reopen: 'Reopened' };
+const tsMs = t => !t ? Date.now() : t.toMillis ? t.toMillis() : typeof t === 'string' ? Date.parse(t) : t.seconds ? t.seconds * 1000 : Date.now();
+function signRooms() { return (S.rooms || []).filter(r => r.type !== 'Floor' && r.active !== false); }
+function roomItemsOf(r) { return S.items.filter(i => i.floor === r.floor && roomMatch(i.room, r.room)); }
+function lastSignoff(r) { return (S.signoffs || []).filter(x => x.roomId === r.id).sort((a, b) => tsMs(a.at || a.clientAt) - tsMs(b.at || b.clientAt)).pop(); }
+function roomSignState(r) {
+  const so = lastSignoff(r), open = roomItemsOf(r).filter(i => i.status !== 'Closed');
+  if (!so) return { key: 'none', so, open };
+  if (so.result === 'Rejected') return { key: 'rej', so, open };
+  const at = tsMs(so.at || so.clientAt), exc = so.exceptionIds || [];
+  const newer = open.filter(i => !exc.includes(i.id) && !(so.openIds || []).includes(i.id) && tsMs(i.createdAt) > at);
+  if (newer.length) return { key: 'reopen', so, open, newer };
+  return { key: so.result === 'Accepted with exceptions' ? 'exc' : 'ok', so, open };
+}
+const fmtWhen = so => new Date(tsMs(so.at || so.clientAt)).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+$('soBtn').onclick = () => openSignoffs();
+$('roomSign').onclick = () => { const r = S.roomFilter && (S.rooms || []).find(x => x.id === S.roomFilter.id); if (r && r.type !== 'Floor') startSign(r); else openSignoffs(); };
+function openSignoffs(floor) {
+  if (!S.pid) { toast('Create a project first'); return; }
+  if (!signRooms().length) { toast('Set up the room list first (Rooms).', 6000); return; }
+  const fl = [...new Set(signRooms().map(r => r.floor))].sort((a, b) => a - b);
+  $('soFloor').innerHTML = '<option value="all">All floors</option>' + fl.map(f => `<option value="${f}">${esc(floorLabel(f))}</option>`).join('');
+  $('soFloor').value = String(floor != null ? floor : fl.includes(S.floor) ? S.floor : 'all');
+  $('soProj').textContent = project().name || '';
+  renderSignoffs(); $('soModal').classList.remove('hidden');
+}
+['soFloor', 'soShow'].forEach(id => $(id).addEventListener('change', renderSignoffs));
+function soRoomsShown() {
+  const f = $('soFloor').value, show = $('soShow').value;
+  return signRooms().filter(r => f === 'all' || r.floor === Number(f)).sort(sortRooms).filter(r => {
+    const k = roomSignState(r).key;
+    return !show || (show === 'todo' ? k === 'none' : show === 'ok' ? k === 'ok' : ['exc', 'rej', 'reopen'].includes(k));
+  });
+}
+function renderSignoffs() {
+  const f = $('soFloor').value, scope = signRooms().filter(r => f === 'all' || r.floor === Number(f));
+  const st = scope.map(roomSignState), cnt = k => st.filter(x => x.key === k).length;
+  $('soSum').innerHTML = `<b>${cnt('ok') + cnt('exc')} of ${scope.length}</b> rooms accepted` +
+    ` · ${cnt('exc')} with exceptions · ${cnt('rej')} rejected · ${cnt('reopen')} reopened · ${cnt('none')} not signed`;
+  const rows = soRoomsShown();
+  $('soList').innerHTML = rows.length ? rows.map(r => {
+    const s = roomSignState(r), so = s.so;
+    const sub = so ? `${esc(so.signer && so.signer.name)}${so.signer && so.signer.title ? ', ' + esc(so.signer.title) : ''} · ${esc(fmtWhen(so))}` : '';
+    const open = s.open.length ? ` · ${s.open.length} open item(s)` : '';
+    return `<div class="so-row"><div class="rm">${esc(r.room)}</div><div class="info"><span class="badge b-${s.key}">${SO_LABEL[s.key]}</span>
+      ${r.name && r.name !== r.room ? ' ' + esc(r.name) : ''}<div class="sub">${esc(floorLabel(r.floor))}${open}${sub ? ' · ' + sub : ''}</div></div>
+      ${so ? `<button data-socert="${esc(so.id)}">Certificate</button>` : ''}<button class="primary" data-sosign="${esc(r.id)}">${so ? 'Sign again' : 'Sign'}</button></div>`;
+  }).join('') : '<div style="padding:14px;color:#5f6368">No rooms match.</div>';
+}
+$('soList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.sosign) { const r = (S.rooms || []).find(x => x.id === b.dataset.sosign); if (r) startSign(r); }
+  if (b.dataset.socert) { const so = S.signoffs.find(x => x.id === b.dataset.socert); if (so) printSignoffs([so], 'Room ' + so.room + ' sign-off'); }
+});
+
+// ---- signing screen
+const SIG = { pad: null, drawn: false, room: null };
+function signer() { try { return JSON.parse(sessionStorage.getItem('pcg_signer') || 'null'); } catch (e) { return S._signer || null; } }
+function setSigner(v) { S._signer = v; try { sessionStorage.setItem('pcg_signer', JSON.stringify(v)); } catch (e) {} }
+function startSign(r) {
+  SIG.room = r;
+  $('soModal').classList.add('hidden');
+  $('sgRoom').textContent = 'Room ' + r.room + (r.name && r.name !== r.room ? ' · ' + r.name : '');
+  $('sgSub').textContent = `${project().name || ''} · ${floorLabel(r.floor)} · owner sign-off`;
+  $('signScreen').classList.remove('hidden');
+  const who = signer();
+  if (who) showReview(); else showWho();
+}
+function showWho() {
+  const who = signer() || {};
+  $('sgName').value = who.name || ''; $('sgTitle').value = who.title || ''; $('sgCompany').value = who.company || ''; $('sgEmail').value = who.email || '';
+  $('sgConsent').checked = false;
+  $('sgWho').classList.remove('hidden'); $('sgReview').classList.add('hidden'); $('sgDone').classList.add('hidden');
+}
+$('sgWhoNext').onclick = () => {
+  const v = { name: $('sgName').value.trim(), title: $('sgTitle').value.trim(), company: $('sgCompany').value.trim(), email: $('sgEmail').value.trim() };
+  if (!v.name) { toast('Enter the full name of the person signing'); return; }
+  if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) { toast('That email address doesn\'t look right'); return; }
+  if (!$('sgConsent').checked) { toast('Tick the box to agree to sign electronically'); return; }
+  setSigner(Object.assign(v, { consentAt: new Date().toISOString() }));
+  showReview();
+};
+function showReview() {
+  const r = SIG.room, who = signer(), items = roomItemsOf(r).sort(byOrd), open = items.filter(i => i.status !== 'Closed');
+  $('sgWho').classList.add('hidden'); $('sgDone').classList.add('hidden'); $('sgReview').classList.remove('hidden');
+  $('sgSigner').innerHTML = `Signing as <b>${esc(who.name)}</b>${who.title ? ', ' + esc(who.title) : ''}${who.company ? ' — ' + esc(who.company) : ''}. <a href="#" id="sgChange">Not you?</a>`;
+  $('sgChange').onclick = ev => { ev.preventDefault(); showWho(); };
+  $('sgItems').innerHTML = items.length ? items.map(i => {
+    const ph = (i.photos || [])[0];
+    return `<div class="sg-it">${ph ? `<img src="${esc(ph.thumbUrl || ph.url)}" alt="">` : ''}<div class="n">${esc(numText(i))}</div><div style="flex:1">${esc(i.description)}<div class="meta">${esc(i.trade || '')}</div></div><span class="stp ${STATUS_CLS(i.status)}">${esc(i.status)}</span></div>`;
+  }).join('') : '<div class="meta">No punch items recorded in this room.</div>';
+  document.querySelectorAll('input[name=sgRes]').forEach(x => { x.checked = false; x.closest('label').classList.toggle('dis', x.value === 'Accepted' && open.length > 0); });
+  $('sgOpenNote').textContent = open.length ? `${open.length} item(s) are still open. They will be listed as exceptions if the room is accepted with exceptions.` : '';
+  $('sgExc').value = ''; $('sgNote').value = ''; $('sgExcBox').classList.add('hidden');
+  setupPad(); updateStmt(); $('signScreen').querySelector('.sg-body').scrollTop = 0;
+}
+function sgResult() { const x = document.querySelector('input[name=sgRes]:checked'); return x ? x.value : ''; }
+function updateStmt() {
+  const r = SIG.room, who = signer() || {}, res = sgResult();
+  $('sgExcBox').classList.toggle('hidden', !res || res === 'Accepted');
+  const me = `I, ${who.name || '…'}${who.title ? ', ' + who.title : ''}${who.company ? ' of ' + who.company : ''}, have walked Room ${r.room} (${floorLabel(r.floor)}) at ${project().name || 'this project'}`;
+  $('sgStmt').textContent = !res ? 'Choose a decision above.' : res === 'Accepted' ? `${me} and accept it as complete.`
+    : res === 'Accepted with exceptions' ? `${me} and accept it as complete except for the open items and exceptions listed.`
+    : `${me} and do not accept it. The items listed must be completed first.`;
+  $('sgSign').disabled = !res || !SIG.drawn;
+}
+document.querySelectorAll('input[name=sgRes]').forEach(x => x.addEventListener('change', updateStmt));
+function setupPad() {
+  const c = $('sgPad'), box = c.parentElement.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = Math.round(box.width * dpr); c.height = Math.round(box.height * dpr);
+  const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.lineWidth = 2.6; x.lineCap = x.lineJoin = 'round'; x.strokeStyle = '#0b1a3a';
+  SIG.pad = x; SIG.drawn = false; SIG.dpr = dpr;
+}
+(() => {
+  const c = $('sgPad'); let down = false, last = null;
+  const pos = e => { const b = c.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  c.addEventListener('pointerdown', e => { down = true; last = pos(e); c.setPointerCapture(e.pointerId); SIG.pad.beginPath(); SIG.pad.arc(last[0], last[1], 1.2, 0, 7); SIG.pad.fill(); e.preventDefault(); });
+  c.addEventListener('pointermove', e => {
+    if (!down) return; const p = pos(e);
+    SIG.pad.beginPath(); SIG.pad.moveTo(last[0], last[1]); SIG.pad.lineTo(p[0], p[1]); SIG.pad.stroke(); last = p;
+    if (!SIG.drawn) { SIG.drawn = true; updateStmt(); }
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => c.addEventListener(t, () => { down = false; }));
+})();
+$('sgClear').onclick = () => { setupPad(); updateStmt(); };
+$('sgCancel').onclick = () => { if (confirm('Stop signing this room? Nothing will be saved.')) { $('signScreen').classList.add('hidden'); openSignoffs(SIG.room && SIG.room.floor); } };
+// signature as a small PNG on white (kept inside the record, so it can't be swapped later)
+function sigImage() {
+  const c = $('sgPad'), w = 600, h = Math.round(600 * c.height / c.width), o = document.createElement('canvas');
+  o.width = w; o.height = h; const x = o.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(c, 0, 0, w, h);
+  return o.toDataURL('image/png');
+}
+$('sgSign').onclick = async () => {
+  const r = SIG.room, who = signer(), res = sgResult();
+  if (!res || !SIG.drawn) return;
+  const lines = $('sgExc').value.split('\n').map(t => t.trim()).filter(Boolean).slice(0, 50);
+  const items = roomItemsOf(r).sort(byOrd), open = items.filter(i => i.status !== 'Closed');
+  if (res === 'Rejected' && !lines.length && !open.length && !$('sgNote').value.trim()) { toast('Say what needs to be done: add items or a comment'); return; }
+  if (res === 'Accepted with exceptions' && !lines.length && !open.length) { toast('Add the exceptions, or choose Accept'); return; }
+  const btn = $('sgSign'); btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const b = F.writeBatch(db), soRef = F.doc(F.collection(db, 'projects', S.pid, 'signoffs')), excIds = [];
+    lines.forEach(t => {
+      const ref = F.doc(F.collection(db, 'projects', S.pid, 'items')); excIds.push(ref.id);
+      b.set(ref, { floor: r.floor, x: r.x != null ? r.x : 0.5, y: r.y != null ? r.y : 0.5, room: r.room, trade: '', description: t, assignedTo: '', priority: 'Medium',
+        dueDate: '', status: 'Open', notes: `Owner sign-off ${res === 'Rejected' ? 'rejection' : 'exception'} – ${who.name}, ${new Date().toLocaleDateString()}`,
+        number: null, photos: [], signoffId: soRef.id, closedAt: null, createdAt: F.serverTimestamp(), createdBy: meStamp(), updatedAt: F.serverTimestamp(), updatedBy: meStamp() });
+    });
+    const rec = {
+      roomId: r.id, room: r.room, roomName: r.name || '', floor: r.floor, floorLabel: floorLabel(r.floor), projectName: project().name || '',
+      result: res, statement: $('sgStmt').textContent, note: $('sgNote').value.trim(),
+      signer: { name: who.name, title: who.title || '', company: who.company || '', email: who.email || '' }, consent: true, consentAt: who.consentAt || '',
+      sig: sigImage(), witness: { uid: S.user.uid, name: S.me.name || S.user.email, email: S.user.email || '', company: S.me.company || '' },
+      at: F.serverTimestamp(), clientAt: new Date().toISOString(), device: navigator.userAgent.slice(0, 200), app: VERSION,
+      items: items.map(i => ({ id: i.id, number: String(numText(i)), description: i.description || '', trade: i.trade || '', status: i.status })),
+      openIds: open.map(i => i.id), exceptions: open.map(i => `#${numText(i)} ${i.description}`).concat(lines), exceptionIds: excIds
+    };
+    b.set(soRef, rec);
+    b.commit().catch(err => toast('Sign-off not saved: ' + friendly(err), 10000));
+    markDirty({ floor: r.floor, room: r.room });
+    S.lastSigned = r.id;
+    $('sgReview').classList.add('hidden'); $('sgDone').classList.remove('hidden');
+    $('sgDoneT').textContent = `Room ${r.room}: ${res}`;
+    $('sgDoneP').textContent = who.email ? `A copy is being emailed to ${who.email}.` : 'No email address was given, so no copy was emailed.';
+    if (who.email) emailSignoff(Object.assign({ id: soRef.id }, rec, { when: new Date().toLocaleString() }), who.email)
+      .then(() => { if (!$('sgDone').classList.contains('hidden')) $('sgDoneP').textContent = `A copy was emailed to ${who.email}.`; })
+      .catch(err => { $('sgDoneP').textContent = `The sign-off is saved, but the email copy wasn't sent (${err.message}).`; });
+  } finally { btn.disabled = false; btn.textContent = 'Sign'; }
+};
+async function emailSignoff(rec, to) {
+  if (!window.PCG_CONFIG.MAILER_URL) throw new Error('email isn\'t set up');
+  if (navigator.onLine === false) throw new Error('no signal');
+  const resp = await fetch(window.PCG_CONFIG.MAILER_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'signoff', idToken: await S.user.getIdToken(), to, record: {
+      id: rec.id, room: rec.room, roomName: rec.roomName, floorLabel: rec.floorLabel, projectName: rec.projectName, result: rec.result, statement: rec.statement,
+      note: rec.note, items: rec.items, exceptions: rec.exceptions, sig: rec.sig, when: rec.when,
+      signerName: rec.signer.name, signerTitle: rec.signer.title, signerCompany: rec.signer.company } }) });
+  const out = await resp.json().catch(() => ({ ok: false, error: 'unexpected reply from the mailer' }));
+  if (!out.ok) throw new Error(out.error);
+  if (!out.result || out.result.sent !== 1 || !out.result.mailer) throw new Error('the mailer needs to be redeployed');
+}
+$('sgNext').onclick = () => {
+  const list = signRooms().filter(r => r.floor === SIG.room.floor).sort(sortRooms);
+  const k = list.findIndex(r => r.id === SIG.room.id);
+  const next = list.slice(k + 1).find(r => !['ok', 'exc'].includes(roomSignState(r).key));
+  if (next) startSign(next); else { $('signScreen').classList.add('hidden'); openSignoffs(SIG.room.floor); toast('No more unsigned rooms on this floor'); }
+};
+$('sgBack').onclick = () => { $('signScreen').classList.add('hidden'); openSignoffs(SIG.room && SIG.room.floor); };
+
+// ---- certificates and the sign-off report (Print / Save as PDF)
+$('soReport').onclick = () => {
+  const f = $('soFloor').value, rooms = signRooms().filter(r => f === 'all' || r.floor === Number(f)).sort(sortRooms);
+  const sos = rooms.map(lastSignoff).filter(Boolean);
+  const st = rooms.map(r => [r, roomSignState(r)]);
+  let html = `<div class="pr-head"><h1>Room sign-off report — ${esc(project().name || '')}</h1><div>${f === 'all' ? 'All floors' : esc(floorLabel(Number(f)))} · ${new Date().toLocaleDateString()}</div></div>
+    <p><b>${st.filter(([, s]) => ['ok', 'exc'].includes(s.key)).length} of ${rooms.length}</b> rooms accepted · ${st.filter(([, s]) => s.key === 'exc').length} with exceptions · ${st.filter(([, s]) => s.key === 'rej').length} rejected · ${st.filter(([, s]) => s.key === 'reopen').length} reopened · ${st.filter(([, s]) => s.key === 'none').length} not signed</p>
+    <table class="pr-tbl"><tr><th>Room</th><th>Floor</th><th>Status</th><th>Signed by</th><th>Date</th><th>Exceptions / comments</th><th>Signature</th></tr>` +
+    st.map(([r, s]) => `<tr><td><b>${esc(r.room)}</b></td><td>${esc(floorLabel(r.floor))}</td><td>${SO_LABEL[s.key]}</td>
+      <td>${s.so ? esc(s.so.signer.name) + (s.so.signer.title ? ', ' + esc(s.so.signer.title) : '') + '<br><span style="color:#666">witness: ' + esc(s.so.witness.name) + '</span>' : ''}</td>
+      <td>${s.so ? esc(fmtWhen(s.so)) : ''}</td><td>${s.so ? esc((s.so.exceptions || []).join('; ')) + (s.so.note ? '<br><i>' + esc(s.so.note) + '</i>' : '') : ''}</td>
+      <td>${s.so && s.so.sig ? `<img src="${s.so.sig}" style="height:34px">` : ''}</td></tr>`).join('') + '</table>';
+  if (sos.length && confirm('Also add a full certificate page for each signed room?')) html += certHtml(sos, true);
+  html += `<div class="pr-foot">Generated ${new Date().toLocaleString()} · PCG Punch ${VERSION}</div>`;
+  printHtml(html, 'portrait');
+};
+function certHtml(list, breakBefore) {
+  return list.map((so, k) => `<div style="${breakBefore || k ? 'page-break-before:always;' : ''}">
+    <div class="pr-head"><h1>Room ${esc(so.room)}${so.roomName && so.roomName !== so.room ? ' · ' + esc(so.roomName) : ''} — sign-off</h1><div>${esc(so.projectName)} · ${esc(so.floorLabel)}</div></div>
+    <p style="font-size:16px"><b>${esc(so.result)}</b></p>
+    <p style="border-left:3px solid #1a73e8;padding:6px 10px;background:#f1f5fe">${esc(so.statement)}</p>
+    ${(so.exceptions || []).length ? '<h3>Exceptions</h3><ul>' + so.exceptions.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>' : ''}
+    ${(so.items || []).length ? '<h3>Punch items in the room at signing</h3><table class="pr-tbl"><tr><th>#</th><th>Description</th><th>Trade</th><th>Status</th></tr>' +
+      so.items.map(i => `<tr><td><b>${esc(i.number)}</b></td><td>${esc(i.description)}</td><td>${esc(i.trade)}</td><td>${esc(i.status)}</td></tr>`).join('') + '</table>' : ''}
+    ${so.note ? `<h3>Comments</h3><p>${esc(so.note)}</p>` : ''}
+    <h3>Signature</h3>${so.sig ? `<img src="${so.sig}" style="width:3.2in;border-bottom:1px solid #999">` : ''}
+    <p>${esc(so.signer.name)}${so.signer.title ? ', ' + esc(so.signer.title) : ''}${so.signer.company ? ' — ' + esc(so.signer.company) : ''}${so.signer.email ? ' · ' + esc(so.signer.email) : ''}<br>
+    Signed ${esc(fmtWhen(so))} on the device of and witnessed by ${esc(so.witness.name)}${so.witness.company ? ' (' + esc(so.witness.company) + ')' : ''}.<br>
+    Agreed to sign electronically${so.consentAt ? ' on ' + esc(new Date(so.consentAt).toLocaleString()) : ''}.</p>
+    <p style="color:#666;font-size:10px">Record ${esc(so.id)} · device: ${esc(so.device || '')} · PCG Punch ${esc(so.app || '')}</p></div>`).join('');
+}
+function printSignoffs(list) { printHtml(certHtml(list, false), 'portrait'); }
+function printHtml(html, orient) {
+  const area = $('printArea'); area.className = 'report'; area.innerHTML = html;
+  $('pageStyle').textContent = `@media print{@page{size:letter ${orient};margin:.5in}}`;
+  $('soModal').classList.add('hidden');
+  setTimeout(() => window.print(), 200);
 }
 
 // ---- photo upload queue (IndexedDB) — survives closing the app with no signal

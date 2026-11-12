@@ -1,5 +1,5 @@
 /**
- * PCG Punch — email sender (v0.5.11)
+ * PCG Punch — email sender (v0.7.0)
  *
  * The PCG Punch app (GitHub Pages + Firebase) asks this script to send punch-list emails,
  * because Firebase can't send email itself. It only sends for people who are signed in to
@@ -32,7 +32,7 @@ function doGet() {
     if (aliases.some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) from = FROM_ALIAS;
     else if (!note) note = ' (' + FROM_ALIAS + ' is not a "Send mail as" address in this Gmail account. Found: ' + (aliases.join(', ') || 'none') + ')';
   }
-  return ContentService.createTextOutput('PCG Punch mailer v0.5.11 is running. Sends from: ' + from + note +
+  return ContentService.createTextOutput('PCG Punch mailer v0.7.0 is running. Sends from: ' + from + note +
     '. Daily emails left: ' + MailApp.getRemainingDailyQuota());
 }
 
@@ -41,7 +41,7 @@ function doPost(e) {
   let out;
   try {
     const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    out = { ok: true, result: p.action === 'plan' ? plan_(p) : send_(p) };
+    out = { ok: true, result: p.action === 'plan' ? plan_(p) : p.action === 'signoff' ? signoff_(p) : send_(p) };
   }
   catch (err) { out = { ok: false, error: String((err && err.message) || err) }; }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
@@ -84,6 +84,49 @@ function plan_(p) {
   const b = r.getBlob();
   if (b.getBytes().length > 20 * 1024 * 1024) throw new Error('Plan image is too large.');
   return { type: b.getContentType() || 'image/jpeg', data: Utilities.base64Encode(b.getBytes()) };
+}
+
+/** Sends one email as "<name> (<company>) via PCG Punch", replies to the sender, sender gets a copy. Returns the alias used. */
+function deliver_(me, to, subject, html, inline) {
+  const opts = { name: me.name + (me.company ? ' (' + me.company + ')' : '') + ' via ' + DISPLAY_NAME, htmlBody: html, inlineImages: inline };
+  if (isEmail_(me.email)) opts.replyTo = me.email;
+  if (CC_SENDER && isEmail_(me.email) && to.map(t => t.toLowerCase()).indexOf(me.email.toLowerCase()) < 0) opts.cc = me.email;
+  let alias = '';
+  if (FROM_ALIAS) { try { if (GmailApp.getAliases().some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) alias = FROM_ALIAS; } catch (e) {} }
+  if (alias) GmailApp.sendEmail(to.join(','), subject, 'This message needs an email app that shows HTML.', Object.assign({ from: alias }, opts));
+  else MailApp.sendEmail(Object.assign({ to: to.join(','), subject: subject }, opts));
+  return alias;
+}
+
+/** Owner room sign-off: emails the signed record (with the signature) to the signer, copy to the witness. */
+function signoff_(p) {
+  const me = sender_(p.idToken), r = p.record || {};
+  const to = String(p.to || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+  if (!to.length || to.some(t => !isEmail_(t))) throw new Error('No valid email address for the signer.');
+  if (to.length > 5) throw new Error('Too many addresses.');
+  const inline = {};
+  const m = /^data:image\/(png|jpeg);base64,(.+)$/.exec(String(r.sig || ''));
+  if (m) inline.sig = Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], 'signature.' + m[1]);
+  const td = 'style="border:1px solid #ddd;padding:5px 7px;font-size:13px;vertical-align:top"';
+  const color = { 'Accepted': '#188038', 'Accepted with exceptions': '#b06000', 'Rejected': '#d93025' }[r.result] || '#202124';
+  let html = '<div style="font-family:Arial,sans-serif;color:#202124;max-width:700px">' +
+    '<h2 style="margin:0 0 4px">Room ' + esc_(r.room) + (r.roomName ? ' · ' + esc_(r.roomName) : '') + ' — sign-off</h2>' +
+    '<div style="color:#5f6368">' + esc_(r.projectName) + ' · ' + esc_(r.floorLabel) + '</div>' +
+    '<p style="font-size:18px;font-weight:bold;color:' + color + ';margin:14px 0 6px">' + esc_(r.result) + '</p>' +
+    '<p style="border-left:3px solid #1a73e8;padding:6px 10px;background:#f1f5fe">' + esc_(r.statement) + '</p>';
+  const items = (r.items || []).slice(0, 300), exc = (r.exceptions || []).slice(0, 100);
+  if (exc.length) html += '<h3 style="margin:14px 0 4px">Exceptions</h3><ul>' + exc.map(e => '<li>' + esc_(e) + '</li>').join('') + '</ul>';
+  if (items.length) html += '<h3 style="margin:14px 0 4px">Punch items in the room at signing</h3><table style="border-collapse:collapse;width:100%">' +
+    '<tr><th ' + td + '>#</th><th ' + td + '>Description</th><th ' + td + '>Trade</th><th ' + td + '>Status</th></tr>' +
+    items.map(i => '<tr><td ' + td + '><b>' + esc_(i.number) + '</b></td><td ' + td + '>' + esc_(i.description) + '</td><td ' + td + '>' + esc_(i.trade) + '</td><td ' + td + '>' + esc_(i.status) + '</td></tr>').join('') + '</table>';
+  if (r.note) html += '<h3 style="margin:14px 0 4px">Comments</h3><p>' + esc_(r.note) + '</p>';
+  html += '<h3 style="margin:16px 0 4px">Signature</h3>' + (inline.sig ? '<img src="cid:sig" style="max-width:360px;border-bottom:1px solid #999">' : '') +
+    '<p style="margin:6px 0">' + esc_(r.signerName) + (r.signerTitle ? ', ' + esc_(r.signerTitle) : '') + (r.signerCompany ? ' — ' + esc_(r.signerCompany) : '') + '<br>' +
+    'Signed ' + esc_(r.when) + ' on ' + esc_(me.name) + "'s device, witnessed by " + esc_(me.name) + (me.company ? ' (' + esc_(me.company) + ')' : '') + '</p>' +
+    '<p style="color:#5f6368;font-size:12px">Record ' + esc_(r.id) + ' · PCG Punch. This email is your copy of the electronic sign-off. If anything here is wrong, reply to this email.</p></div>';
+  const subject = ('Room ' + r.room + ' sign-off – ' + r.result + ' – ' + r.projectName).slice(0, 200);
+  deliver_(me, to, subject, html, inline);
+  return { sent: 1, mailer: 'v0.7.0' };
 }
 
 function send_(p) {
@@ -148,18 +191,7 @@ function send_(p) {
   if (omitted) html += '<p style="color:#b06000">' + omitted + ' more photo(s) not included — ask for the PDF report for all photos.</p>';
   html += '<p style="color:#5f6368;font-size:12px;margin-top:16px">' + COMPANY + '</p></div>';
 
-  const opts = {
-    name: me.name + (me.company ? ' (' + me.company + ')' : '') + ' via ' + DISPLAY_NAME,
-    htmlBody: html, inlineImages: inline
-  };
-  if (isEmail_(me.email)) opts.replyTo = me.email;
-  if (CC_SENDER && isEmail_(me.email) && to.map(t => t.toLowerCase()).indexOf(me.email.toLowerCase()) < 0) opts.cc = me.email;
-  const subject = String(p.subject || (p.projectName + ' – Punch List')).slice(0, 200);
-
-  let alias = '';
-  if (FROM_ALIAS) { try { if (GmailApp.getAliases().some(a => a.toLowerCase() === FROM_ALIAS.toLowerCase())) alias = FROM_ALIAS; } catch (e) {} }
-  if (alias) GmailApp.sendEmail(to.join(','), subject, 'This message needs an email app that shows HTML.', Object.assign({ from: alias }, opts));
-  else MailApp.sendEmail(Object.assign({ to: to.join(','), subject: subject }, opts));
-  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.5.11',
+  const alias = deliver_(me, to, String(p.subject || (p.projectName + ' – Punch List')).slice(0, 200), html, inline);
+  return { sent: items.length, photos: photos, omitted: omitted, failed: failed, mailer: 'v0.7.0',
     from: alias || Session.getEffectiveUser().getEmail(), aliasMissing: !!FROM_ALIAS && !alias };
 }
