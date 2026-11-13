@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.7.1';
+const VERSION = 'v0.7.2';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1165,7 +1165,9 @@ function signRooms() { return (S.rooms || []).filter(r => r.type !== 'Floor' && 
 function roomItemsOf(r) { return S.items.filter(i => i.floor === r.floor && roomMatch(i.room, r.room)); }
 function lastSignoff(r) { return (S.signoffs || []).filter(x => x.roomId === r.id).sort((a, b) => tsMs(a.at || a.clientAt) - tsMs(b.at || b.clientAt)).pop(); }
 function roomSignState(r) {
-  const so = lastSignoff(r), open = roomItemsOf(r).filter(i => i.status !== 'Closed');
+  const last = lastSignoff(r), open = roomItemsOf(r).filter(i => i.status !== 'Closed');
+  if (last && last.result === 'Voided') return { key: 'none', so: null, open, voided: last };
+  const so = last;
   if (!so) return { key: 'none', so, open };
   if (so.result === 'Rejected') return { key: 'rej', so, open };
   const at = tsMs(so.at || so.clientAt), exc = so.exceptionIds || [];
@@ -1184,6 +1186,7 @@ function openSignoffs(floor) {
   $('soFloor').innerHTML = '<option value="all">All floors</option>' + fl.map(f => `<option value="${f}">${esc(floorLabel(f))}</option>`).join('');
   $('soFloor').value = String(floor != null ? floor : fl.includes(S.floor) ? S.floor : 'all');
   $('soProj').textContent = project().name || '';
+  try { $('soPractice').checked = sessionStorage.getItem('pcg_practice') === '1'; } catch (e) {}
   renderSignoffs(); $('soModal').classList.remove('hidden');
 }
 ['soFloor', 'soShow'].forEach(id => $(id).addEventListener('change', renderSignoffs));
@@ -1202,18 +1205,47 @@ function renderSignoffs() {
   const rows = soRoomsShown();
   $('soList').innerHTML = rows.length ? rows.map(r => {
     const s = roomSignState(r), so = s.so;
-    const sub = so ? `${esc(so.signer && so.signer.name)}${so.signer && so.signer.title ? ', ' + esc(so.signer.title) : ''} · ${esc(fmtWhen(so))}` : '';
+    const sub = so ? `${esc(so.signer && so.signer.name)}${so.signer && so.signer.title ? ', ' + esc(so.signer.title) : ''} · ${esc(fmtWhen(so))}`
+      : s.voided ? `last sign-off voided ${esc(fmtWhen(s.voided))}${s.voided.reason ? ': ' + esc(s.voided.reason) : ''}` : '';
+    const admin = S.me && S.me.role === 'Admin';
     const open = s.open.length ? ` · ${s.open.length} open item(s)` : '';
-    return `<div class="so-row"><div class="rm">${esc(r.room)}</div><div class="info"><span class="badge b-${s.key}">${SO_LABEL[s.key]}</span>
+    return `<div class="so-row"><div class="rm">${esc(r.room)}</div><div class="info"><span class="badge b-${s.key}">${SO_LABEL[s.key]}</span>${so && so.test ? ' <span class="badge b-test">PRACTICE</span>' : ''}
       ${r.name && r.name !== r.room ? ' ' + esc(r.name) : ''}<div class="sub">${esc(floorLabel(r.floor))}${open}${sub ? ' · ' + sub : ''}</div></div>
-      ${so ? `<button data-socert="${esc(so.id)}">Certificate</button>` : ''}<button class="primary" data-sosign="${esc(r.id)}">${so ? 'Sign again' : 'Sign'}</button></div>`;
+      ${so ? `<button data-socert="${esc(so.id)}">Certificate</button>` : ''}${so && admin ? (so.test ? `<button data-sodel="${esc(so.id)}">Delete</button>` : `<button data-sovoid="${esc(so.id)}">Void</button>`) : ''}<button class="primary" data-sosign="${esc(r.id)}">${so ? 'Sign again' : 'Sign'}</button></div>`;
   }).join('') : '<div style="padding:14px;color:#5f6368">No rooms match.</div>';
 }
 $('soList').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.sosign) { const r = (S.rooms || []).find(x => x.id === b.dataset.sosign); if (r) startSign(r); }
   if (b.dataset.socert) { const so = S.signoffs.find(x => x.id === b.dataset.socert); if (so) printSignoffs([so], 'Room ' + so.room + ' sign-off'); }
+  if (b.dataset.sodel) deleteTestSignoffs(S.signoffs.filter(x => x.id === b.dataset.sodel));
+  if (b.dataset.sovoid) voidSignoff(S.signoffs.find(x => x.id === b.dataset.sovoid));
 });
+// Practice sign-offs (for trying it out) can be deleted, with any items they added. Real ones can only be voided.
+function deleteTestSignoffs(list) {
+  list = list.filter(x => x && x.test); if (!list.length) { toast('No practice sign-offs to delete'); return; }
+  const items = S.items.filter(i => list.some(x => i.signoffId === x.id));
+  if (!confirm(`Delete ${list.length} practice sign-off(s)` + (items.length ? ` and the ${items.length} punch item(s) they added` : '') + '?')) return;
+  const b = F.writeBatch(db);
+  list.forEach(x => b.delete(F.doc(db, 'projects', S.pid, 'signoffs', x.id)));
+  items.forEach(i => b.delete(F.doc(db, 'projects', S.pid, 'items', i.id)));
+  b.commit().then(() => toast('Practice sign-off(s) deleted')).catch(err => toast('Not deleted: ' + friendly(err) + ' (are the v0.7.2 rules published?)', 10000));
+}
+// Voiding keeps the original (it can't be deleted) and adds a record that puts the room back to "Not signed"
+function voidSignoff(so) {
+  if (!so) return;
+  const reason = prompt(`Void the sign-off of Room ${so.room} by ${so.signer.name} (${fmtWhen(so)})?\nThe original stays on record; the room goes back to "Not signed".\n\nReason:`);
+  if (reason == null) return;
+  if (!reason.trim()) { toast('Give a reason for voiding'); return; }
+  F.setDoc(F.doc(F.collection(db, 'projects', S.pid, 'signoffs')), { roomId: so.roomId, room: so.room, floor: so.floor, result: 'Voided', voidOf: so.id,
+    reason: reason.trim().slice(0, 300), witness: { uid: S.user.uid, name: S.me.name || S.user.email, email: S.user.email || '', company: S.me.company || '' },
+    at: F.serverTimestamp(), clientAt: new Date().toISOString(), app: VERSION })
+    .catch(err => toast('Not voided: ' + friendly(err), 8000));
+  toast(`Room ${so.room} sign-off voided`);
+}
+$('soPractice').addEventListener('change', () => { try { sessionStorage.setItem('pcg_practice', $('soPractice').checked ? '1' : ''); } catch (e) {} });
+const practice = () => $('soPractice').checked;
+$('soDelTest').onclick = () => deleteTestSignoffs((S.signoffs || []).filter(x => x.test));
 
 // ---- signing screen
 const SIG = { pad: null, drawn: false, room: null };
@@ -1225,6 +1257,8 @@ function startSign(r) {
   $('sgRoom').textContent = 'Room ' + r.room + (r.name && r.name !== r.room ? ' · ' + r.name : '');
   $('sgSub').textContent = `${project().name || ''} · ${floorLabel(r.floor)} · owner sign-off`;
   $('signScreen').classList.remove('hidden');
+  $('sgPractice').classList.toggle('hidden', !practice());
+  scrollTo(0, 0);
   const who = signer();
   if (who) showReview(); else showWho();
 }
@@ -1233,6 +1267,7 @@ function showWho() {
   $('sgName').value = who.name || ''; $('sgTitle').value = who.title || ''; $('sgCompany').value = who.company || ''; $('sgEmail').value = who.email || '';
   $('sgConsent').checked = false;
   $('sgWho').classList.remove('hidden'); $('sgReview').classList.add('hidden'); $('sgDone').classList.add('hidden');
+  $('signScreen').querySelector('.sg-body').scrollTop = 0; scrollTo(0, 0);
 }
 $('sgWhoNext').onclick = () => {
   const v = { name: $('sgName').value.trim(), title: $('sgTitle').value.trim(), company: $('sgCompany').value.trim(), email: $('sgEmail').value.trim() };
@@ -1254,7 +1289,8 @@ function showReview() {
   document.querySelectorAll('input[name=sgRes]').forEach(x => { x.checked = false; x.closest('label').classList.toggle('dis', x.value === 'Accepted' && open.length > 0); });
   $('sgOpenNote').textContent = open.length ? `${open.length} item(s) are still open. They will be listed as exceptions if the room is accepted with exceptions.` : '';
   $('sgExc').value = ''; $('sgNote').value = ''; $('sgExcBox').classList.add('hidden');
-  setupPad(); updateStmt(); $('signScreen').querySelector('.sg-body').scrollTop = 0;
+  scrollTo(0, 0); $('signScreen').querySelector('.sg-body').scrollTop = 0;
+  requestAnimationFrame(() => { setupPad(); updateStmt(); }); // size the pad once it's on screen
 }
 function sgResult() { const x = document.querySelector('input[name=sgRes]:checked'); return x ? x.value : ''; }
 function updateStmt() {
@@ -1332,6 +1368,7 @@ $('sgSign').onclick = async () => {
       items: items.map(i => ({ id: i.id, number: String(numText(i)), description: i.description || '', trade: i.trade || '', status: i.status })),
       openIds: open.map(i => i.id), exceptions: open.map(i => `#${numText(i)} ${i.description}`).concat(lines), exceptionIds: excIds
     };
+    if (practice()) rec.test = true;
     b.set(soRef, rec);
     b.commit().catch(err => toast('Sign-off not saved: ' + friendly(err), 10000));
     markDirty({ floor: r.floor, room: r.room });
@@ -1339,7 +1376,7 @@ $('sgSign').onclick = async () => {
     $('sgReview').classList.add('hidden'); $('sgDone').classList.remove('hidden');
     $('sgDoneT').textContent = `Room ${r.room}: ${res}`;
     $('sgDoneP').textContent = who.email ? `A copy is being emailed to ${who.email}.` : 'No email address was given, so no copy was emailed.';
-    if (who.email) emailSignoff(Object.assign({ id: soRef.id }, rec, { when: new Date().toLocaleString() }), who.email)
+    if (who.email) emailSignoff(Object.assign({ id: soRef.id }, rec, { when: new Date().toLocaleString() }, rec.test ? { result: rec.result + ' (PRACTICE – not a real sign-off)' } : {}), who.email)
       .then(() => { if (!$('sgDone').classList.contains('hidden')) $('sgDoneP').textContent = `A copy was emailed to ${who.email}.`; })
       .catch(err => { $('sgDoneP').textContent = `The sign-off is saved, but the email copy wasn't sent (${err.message}).`; });
   } finally { btn.disabled = false; btn.textContent = 'Sign'; }
@@ -1367,12 +1404,12 @@ $('sgBack').onclick = () => { $('signScreen').classList.add('hidden'); openSigno
 // ---- certificates and the sign-off report (Print / Save as PDF)
 $('soReport').onclick = () => {
   const f = $('soFloor').value, rooms = signRooms().filter(r => f === 'all' || r.floor === Number(f)).sort(sortRooms);
-  const sos = rooms.map(lastSignoff).filter(Boolean);
+  const sos = rooms.map(r => roomSignState(r).so).filter(Boolean);
   const st = rooms.map(r => [r, roomSignState(r)]);
   let html = `<div class="pr-head"><h1>Room sign-off report — ${esc(project().name || '')}</h1><div>${f === 'all' ? 'All floors' : esc(floorLabel(Number(f)))} · ${new Date().toLocaleDateString()}</div></div>
     <p><b>${st.filter(([, s]) => ['ok', 'exc'].includes(s.key)).length} of ${rooms.length}</b> rooms accepted · ${st.filter(([, s]) => s.key === 'exc').length} with exceptions · ${st.filter(([, s]) => s.key === 'rej').length} rejected · ${st.filter(([, s]) => s.key === 'reopen').length} reopened · ${st.filter(([, s]) => s.key === 'none').length} not signed</p>
     <table class="pr-tbl"><tr><th>Room</th><th>Floor</th><th>Status</th><th>Signed by</th><th>Date</th><th>Exceptions / comments</th><th>Signature</th></tr>` +
-    st.map(([r, s]) => `<tr><td><b>${esc(r.room)}</b></td><td>${esc(floorLabel(r.floor))}</td><td>${SO_LABEL[s.key]}</td>
+    st.map(([r, s]) => `<tr><td><b>${esc(r.room)}</b></td><td>${esc(floorLabel(r.floor))}</td><td>${SO_LABEL[s.key]}${s.so && s.so.test ? ' (PRACTICE)' : ''}</td>
       <td>${s.so ? esc(s.so.signer.name) + (s.so.signer.title ? ', ' + esc(s.so.signer.title) : '') + '<br><span style="color:#666">witness: ' + esc(s.so.witness.name) + '</span>' : ''}</td>
       <td>${s.so ? esc(fmtWhen(s.so)) : ''}</td><td>${s.so ? esc((s.so.exceptions || []).join('; ')) + (s.so.note ? '<br><i>' + esc(s.so.note) + '</i>' : '') : ''}</td>
       <td>${s.so && s.so.sig ? `<img src="${s.so.sig}" style="height:34px">` : ''}</td></tr>`).join('') + '</table>';
@@ -1383,7 +1420,7 @@ $('soReport').onclick = () => {
 function certHtml(list, breakBefore) {
   return list.map((so, k) => `<div style="${breakBefore || k ? 'page-break-before:always;' : ''}">
     <div class="pr-head"><h1>Room ${esc(so.room)}${so.roomName && so.roomName !== so.room ? ' · ' + esc(so.roomName) : ''} — sign-off</h1><div>${esc(so.projectName)} · ${esc(so.floorLabel)}</div></div>
-    <p style="font-size:16px"><b>${esc(so.result)}</b></p>
+    <p style="font-size:16px"><b>${esc(so.result)}</b>${so.test ? ' <b style="color:#d93025">— PRACTICE, not a real sign-off</b>' : ''}</p>
     <p style="border-left:3px solid #1a73e8;padding:6px 10px;background:#f1f5fe">${esc(so.statement)}</p>
     ${(so.exceptions || []).length ? '<h3>Exceptions</h3><ul>' + so.exceptions.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>' : ''}
     ${(so.items || []).length ? '<h3>Punch items in the room at signing</h3><table class="pr-tbl"><tr><th>#</th><th>Description</th><th>Trade</th><th>Status</th></tr>' +

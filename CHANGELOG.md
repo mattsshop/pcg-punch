@@ -1,5 +1,11 @@
 # PCG Punch changelog
 
+## v0.7.2 (2026-11-13)
+- Signing screen is labeled **Step 1 of 2** (who is signing) and **Step 2 of 2** (review and sign — the signature box is on this step), and opens scrolled to the top.
+- **Practice mode** (Sign-off window): sign-offs are marked PRACTICE (orange banner while signing, "PRACTICE" in emails and certificates) and an Admin can **Delete** them, one at a time or all at once, together with any punch items they added.
+- **Void** (Admin) for a real sign-off made by mistake: give a reason; the original stays on record and the room goes back to "Not signed".
+- **Firestore rules v0.7.2** must be published (lets Admins delete practice sign-offs only).
+
 ## v0.7.1 (2026-11-12)
 - Signature pad works with a **finger or a pen** (Apple Pencil, Samsung S Pen, other styluses) or a mouse, and says so. With a pen the line follows pen pressure, and finger/palm touches are ignored on that room so a resting hand doesn't draw. Smoother lines and a taller signing area.
 

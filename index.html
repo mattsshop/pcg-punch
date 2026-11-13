@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.7.1">
-<script src="config.js?v=0.7.1"></script>
+<link rel="stylesheet" href="style.css?v=0.7.2">
+<script src="config.js?v=0.7.2"></script>
 </head>
 <body>
 
@@ -312,16 +312,19 @@
     <div><label>Show<select id="soShow"><option value="">All rooms</option><option value="todo">Not signed yet</option>
       <option value="attn">Exceptions, rejected or reopened</option><option value="ok">Accepted</option></select></label></div>
   </div>
+  <label class="chk" style="margin-top:8px"><input type="checkbox" id="soPractice"> <b>Practice mode</b> — sign-offs are marked PRACTICE and can be deleted (for trying it out)</label>
   <div class="meta" id="soSum" style="margin:8px 0"></div>
   <div id="soList" class="solist"></div>
-  <div class="btns"><button id="soReport">Sign-off report (PDF)</button><span class="sp"></span><button data-close>Close</button></div>
+  <div class="btns"><button id="soReport">Sign-off report (PDF)</button><button id="soDelTest" class="admin-only">Delete practice sign-offs</button><span class="sp"></span><button data-close>Close</button></div>
 </div></div>
 
 <!-- Owner sign-off: full-screen signing screen, handed to the owner -->
 <div id="signScreen" class="hidden">
   <div class="sg-head"><div><div class="sg-room" id="sgRoom"></div><div class="meta" id="sgSub"></div></div><button id="sgCancel">Cancel</button></div>
+  <div id="sgPractice" class="sg-practice hidden">PRACTICE — not a real sign-off</div>
   <div class="sg-body">
     <section id="sgWho">
+      <div class="sg-step">Step 1 of 2</div>
       <h3>Who is signing?</h3>
       <div class="grid">
         <div><label>Full name<input id="sgName" autocomplete="name"></label></div>
@@ -331,8 +334,10 @@
       </div>
       <label class="chk sg-consent"><input type="checkbox" id="sgConsent"> I agree to sign electronically on this device. My electronic signature has the same effect as my handwritten signature.</label>
       <div class="btns"><button class="primary" id="sgWhoNext">Continue</button></div>
+      <div class="meta">Next: the room's punch items, the decision, and the box to sign with a finger or a pen.</div>
     </section>
     <section id="sgReview" class="hidden">
+      <div class="sg-step">Step 2 of 2 — review and sign</div>
       <div class="meta" id="sgSigner"></div>
       <h4>Punch items in this room</h4>
       <div id="sgItems"></div>
@@ -358,6 +363,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.7.1"></script>
+<script type="module" src="app.js?v=0.7.2"></script>
 </body>
 </html>
