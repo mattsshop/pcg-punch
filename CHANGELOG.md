@@ -1,5 +1,8 @@
 # PCG Punch changelog
 
+## v0.7.4 (2026-11-13)
+- Trade QR page (what subs see after picking their trade): items show **"Room #205"** instead of an item number and room, which was confusing. Areas without a number show their name (e.g. "Lobby"); general items show "Several rooms" with the rooms still open.
+
 ## v0.7.3 (2026-11-13)
 - **Simpler owner sign-off: one screen.** No title, company, email or separate agreement step. The signer is always the **Owner's representative**: they review the room's items, pick a decision, type their name, and sign with a finger or pen. The name is filled in again for the next room. The statement they sign now includes the agreement to sign electronically.
 - No email copy is sent (no email is asked for). Certificates and the sign-off report work as before.

@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.7.3';
+const VERSION = 'v0.7.4';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1626,7 +1626,7 @@ function showTradeBoard(p) {
   const items = p.items || [], byT = {};
   items.forEach(i => (byT[i.trade || 'Other'] = byT[i.trade || 'Other'] || []).push(i));
   const card = i => `<div class="pub-card">${i.thumbUrl ? `<img src="${esc(i.thumbUrl)}" alt="">` : ''}<div>
-    <div class="t">#${esc(i.number == null ? '…' : i.number)}${i.room ? ' · ' + esc(i.room) : ''}</div>
+    <div class="t">${i.rooms ? 'Several rooms' : i.room ? (/^\d/.test(i.room) ? 'Room #' : '') + esc(i.room) : 'No room given'}</div>
     <div class="d">${esc(i.description)}</div>${i.rooms ? `<div class="meta">${esc(i.rooms)}</div>` : ''}<span class="stp ${STATUS_CLS(i.status)}">${esc(i.status)}</span></div></div>`;
   const list = t => {
     const its = byT[t] || [];
