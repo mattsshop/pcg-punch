@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PCG Punch">
-<link rel="stylesheet" href="style.css?v=0.7.2">
-<script src="config.js?v=0.7.2"></script>
+<link rel="stylesheet" href="style.css?v=0.7.3">
+<script src="config.js?v=0.7.3"></script>
 </head>
 <body>
 
@@ -323,22 +323,8 @@
   <div class="sg-head"><div><div class="sg-room" id="sgRoom"></div><div class="meta" id="sgSub"></div></div><button id="sgCancel">Cancel</button></div>
   <div id="sgPractice" class="sg-practice hidden">PRACTICE — not a real sign-off</div>
   <div class="sg-body">
-    <section id="sgWho">
-      <div class="sg-step">Step 1 of 2</div>
-      <h3>Who is signing?</h3>
-      <div class="grid">
-        <div><label>Full name<input id="sgName" autocomplete="name"></label></div>
-        <div><label>Title<input id="sgTitle" placeholder="e.g. Owner, Owner's rep"></label></div>
-        <div><label>Company<input id="sgCompany" autocomplete="organization"></label></div>
-        <div><label>Email (a copy of each sign-off is sent here)<input id="sgEmail" type="email" autocomplete="email"></label></div>
-      </div>
-      <label class="chk sg-consent"><input type="checkbox" id="sgConsent"> I agree to sign electronically on this device. My electronic signature has the same effect as my handwritten signature.</label>
-      <div class="btns"><button class="primary" id="sgWhoNext">Continue</button></div>
-      <div class="meta">Next: the room's punch items, the decision, and the box to sign with a finger or a pen.</div>
-    </section>
     <section id="sgReview" class="hidden">
-      <div class="sg-step">Step 2 of 2 — review and sign</div>
-      <div class="meta" id="sgSigner"></div>
+      <div class="sg-step">Review and sign</div>
       <h4>Punch items in this room</h4>
       <div id="sgItems"></div>
       <h4>Decision</h4>
@@ -350,6 +336,7 @@
       <div class="meta" id="sgOpenNote"></div>
       <div id="sgExcBox" class="hidden"><label>Add items (one per line — each becomes a punch item in this room)<textarea id="sgExc" rows="3" placeholder="e.g. Scratch on headboard"></textarea></label></div>
       <label>Comments (optional)<textarea id="sgNote" rows="2"></textarea></label>
+      <label>Owner's representative — full name<input id="sgRepName" autocomplete="name"></label>
       <div class="sg-stmt" id="sgStmt"></div>
       <div class="sg-padwrap"><canvas id="sgPad"></canvas><div class="sg-line">✕ Sign here with your finger or a pen</div><button id="sgClear" type="button">Clear</button></div>
       <div class="btns"><button class="primary sg-big" id="sgSign" disabled>Sign</button></div>
@@ -363,6 +350,6 @@
 
 <div id="lightbox" class="hidden"><img alt=""></div>
 <div id="toast" class="hidden"></div>
-<script type="module" src="app.js?v=0.7.2"></script>
+<script type="module" src="app.js?v=0.7.3"></script>
 </body>
 </html>

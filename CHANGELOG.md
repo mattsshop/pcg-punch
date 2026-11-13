@@ -1,5 +1,9 @@
 # PCG Punch changelog
 
+## v0.7.3 (2026-11-13)
+- **Simpler owner sign-off: one screen.** No title, company, email or separate agreement step. The signer is always the **Owner's representative**: they review the room's items, pick a decision, type their name, and sign with a finger or pen. The name is filled in again for the next room. The statement they sign now includes the agreement to sign electronically.
+- No email copy is sent (no email is asked for). Certificates and the sign-off report work as before.
+
 ## v0.7.2 (2026-11-13)
 - Signing screen is labeled **Step 1 of 2** (who is signing) and **Step 2 of 2** (review and sign — the signature box is on this step), and opens scrolled to the top.
 - **Practice mode** (Sign-off window): sign-offs are marked PRACTICE (orange banner while signing, "PRACTICE" in emails and certificates) and an Admin can **Delete** them, one at a time or all at once, together with any punch items they added.

@@ -3,7 +3,7 @@ import * as F from './fb.js';
 import { QR } from './qr.js';
 import { ROOM_SEEDS } from './seeds.js';
 
-const VERSION = 'v0.7.2';
+const VERSION = 'v0.7.3';
 const OWNER = 'matt@mattsshop.com'; // must match firebase/firestore.rules and storage.rules
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const PLAN_MAX_PX = 4200; // long side of the image made from a PDF plan
@@ -1259,29 +1259,12 @@ function startSign(r) {
   $('signScreen').classList.remove('hidden');
   $('sgPractice').classList.toggle('hidden', !practice());
   scrollTo(0, 0);
-  const who = signer();
-  if (who) showReview(); else showWho();
-}
-function showWho() {
-  const who = signer() || {};
-  $('sgName').value = who.name || ''; $('sgTitle').value = who.title || ''; $('sgCompany').value = who.company || ''; $('sgEmail').value = who.email || '';
-  $('sgConsent').checked = false;
-  $('sgWho').classList.remove('hidden'); $('sgReview').classList.add('hidden'); $('sgDone').classList.add('hidden');
-  $('signScreen').querySelector('.sg-body').scrollTop = 0; scrollTo(0, 0);
-}
-$('sgWhoNext').onclick = () => {
-  const v = { name: $('sgName').value.trim(), title: $('sgTitle').value.trim(), company: $('sgCompany').value.trim(), email: $('sgEmail').value.trim() };
-  if (!v.name) { toast('Enter the full name of the person signing'); return; }
-  if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) { toast('That email address doesn\'t look right'); return; }
-  if (!$('sgConsent').checked) { toast('Tick the box to agree to sign electronically'); return; }
-  setSigner(Object.assign(v, { consentAt: new Date().toISOString() }));
   showReview();
-};
+}
 function showReview() {
   const r = SIG.room, who = signer(), items = roomItemsOf(r).sort(byOrd), open = items.filter(i => i.status !== 'Closed');
-  $('sgWho').classList.add('hidden'); $('sgDone').classList.add('hidden'); $('sgReview').classList.remove('hidden');
-  $('sgSigner').innerHTML = `Signing as <b>${esc(who.name)}</b>${who.title ? ', ' + esc(who.title) : ''}${who.company ? ' — ' + esc(who.company) : ''}. <a href="#" id="sgChange">Not you?</a>`;
-  $('sgChange').onclick = ev => { ev.preventDefault(); showWho(); };
+  $('sgDone').classList.add('hidden'); $('sgReview').classList.remove('hidden');
+  $('sgRepName').value = (who && who.name) || ''; // same person for the rest of the walk
   $('sgItems').innerHTML = items.length ? items.map(i => {
     const ph = (i.photos || [])[0];
     return `<div class="sg-it">${ph ? `<img src="${esc(ph.thumbUrl || ph.url)}" alt="">` : ''}<div class="n">${esc(numText(i))}</div><div style="flex:1">${esc(i.description)}<div class="meta">${esc(i.trade || '')}</div></div><span class="stp ${STATUS_CLS(i.status)}">${esc(i.status)}</span></div>`;
@@ -1294,14 +1277,17 @@ function showReview() {
 }
 function sgResult() { const x = document.querySelector('input[name=sgRes]:checked'); return x ? x.value : ''; }
 function updateStmt() {
-  const r = SIG.room, who = signer() || {}, res = sgResult();
+  const r = SIG.room, name = $('sgRepName').value.trim(), res = sgResult();
   $('sgExcBox').classList.toggle('hidden', !res || res === 'Accepted');
-  const me = `I, ${who.name || '…'}${who.title ? ', ' + who.title : ''}${who.company ? ' of ' + who.company : ''}, have walked Room ${r.room} (${floorLabel(r.floor)}) at ${project().name || 'this project'}`;
+  const me = `I, ${name || '…'}, ${REP_TITLE}, have walked Room ${r.room} (${floorLabel(r.floor)}) at ${project().name || 'this project'}`;
   $('sgStmt').textContent = !res ? 'Choose a decision above.' : res === 'Accepted' ? `${me} and accept it as complete.`
     : res === 'Accepted with exceptions' ? `${me} and accept it as complete except for the open items and exceptions listed.`
     : `${me} and do not accept it. The items listed must be completed first.`;
-  $('sgSign').disabled = !res || !SIG.drawn;
+  if (res) $('sgStmt').textContent += ' I agree to sign electronically; my electronic signature has the same effect as my handwritten signature.';
+  $('sgSign').disabled = !res || !SIG.drawn || !name;
 }
+const REP_TITLE = "Owner's representative";
+$('sgRepName').addEventListener('input', updateStmt);
 document.querySelectorAll('input[name=sgRes]').forEach(x => x.addEventListener('change', updateStmt));
 function setupPad() {
   const c = $('sgPad'), box = c.parentElement.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
@@ -1344,8 +1330,9 @@ function sigImage() {
   return o.toDataURL('image/png');
 }
 $('sgSign').onclick = async () => {
-  const r = SIG.room, who = signer(), res = sgResult();
-  if (!res || !SIG.drawn) return;
+  const r = SIG.room, res = sgResult(), who = { name: $('sgRepName').value.trim(), title: REP_TITLE, company: '', email: '', consentAt: new Date().toISOString() };
+  if (!res || !SIG.drawn || !who.name) return;
+  setSigner({ name: who.name });
   const lines = $('sgExc').value.split('\n').map(t => t.trim()).filter(Boolean).slice(0, 50);
   const items = roomItemsOf(r).sort(byOrd), open = items.filter(i => i.status !== 'Closed');
   if (res === 'Rejected' && !lines.length && !open.length && !$('sgNote').value.trim()) { toast('Say what needs to be done: add items or a comment'); return; }
@@ -1375,7 +1362,7 @@ $('sgSign').onclick = async () => {
     S.lastSigned = r.id;
     $('sgReview').classList.add('hidden'); $('sgDone').classList.remove('hidden');
     $('sgDoneT').textContent = `Room ${r.room}: ${res}`;
-    $('sgDoneP').textContent = who.email ? `A copy is being emailed to ${who.email}.` : 'No email address was given, so no copy was emailed.';
+    $('sgDoneP').textContent = `Signed by ${who.name}, ${REP_TITLE}.`;
     if (who.email) emailSignoff(Object.assign({ id: soRef.id }, rec, { when: new Date().toLocaleString() }, rec.test ? { result: rec.result + ' (PRACTICE – not a real sign-off)' } : {}), who.email)
       .then(() => { if (!$('sgDone').classList.contains('hidden')) $('sgDoneP').textContent = `A copy was emailed to ${who.email}.`; })
       .catch(err => { $('sgDoneP').textContent = `The sign-off is saved, but the email copy wasn't sent (${err.message}).`; });
